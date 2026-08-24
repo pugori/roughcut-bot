@@ -216,15 +216,8 @@ class SubtitleEngine:
         sub_global_idx = 1
         total_markers = len(markers)
 
-        for idx, m in enumerate(markers, 1):
-            if progress_cb and (idx % 2 == 0 or idx == 1 or idx == total_markers):
-                pct = 0.88 + (idx / total_markers) * 0.11
-                progress_cb(
-                    "SubtitleGen",
-                    pct,
-                    f"Whisper-Turbo 고정밀 자막 생성 중: [{idx}/{total_markers}개] ({int((idx / total_markers) * 100)}%)",
-                )
-
+        def _process_marker_task(idx_m):
+            idx, m = idx_m
             # 1. Extract slice with AGC + generous pre/post margins
             if has_mem_audio:
                 slice_audio, slice_st, _ = (
@@ -244,7 +237,7 @@ class SubtitleEngine:
                     slice_audio = np.zeros(0, dtype=np.float32)
 
             if len(slice_audio) < int(sr * 0.4):
-                continue
+                return idx, m, []
 
             # 2. Trim silence edges safely with 350ms padding
             slice_audio, leading_trim_sec = self.preprocessor.trim_silence_edges(
@@ -253,7 +246,7 @@ class SubtitleEngine:
             slice_st += leading_trim_sec
 
             if len(slice_audio) < int(sr * 0.4):
-                continue
+                return idx, m, []
 
             vocal_audio = slice_audio
 
@@ -303,11 +296,11 @@ class SubtitleEngine:
                     else:
                         collected_words.append(
                             {
-                                    "word": txt,
-                                    "start": float(seg.start),
-                                    "end": float(seg.end),
-                                    "abs_start": float(seg.start) + slice_st,
-                                    "abs_end": float(seg.end) + slice_st,
+                                "word": txt,
+                                "start": float(seg.start),
+                                "end": float(seg.end),
+                                "abs_start": float(seg.start) + slice_st,
+                                "abs_end": float(seg.end) + slice_st,
                             }
                         )
 
@@ -329,15 +322,24 @@ class SubtitleEngine:
                         time_offset=0.0,
                         lexicon_processor=lexicon_proc,
                     )
-
-                    for s in marker_subs:
-                        s.index = sub_global_idx
-                        all_subtitles.append(s)
-                        sub_global_idx += 1
+                    return idx, m, marker_subs
 
             except Exception as e:
                 _logger.warning("Subtitle extraction error on marker %s: %s", idx, e)
-                continue
+            return idx, m, []
+
+        import concurrent.futures
+        num_workers = 6 if self.device == "cuda" else 2
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as pool:
+            results = list(pool.map(_process_marker_task, enumerate(markers, 1)))
+
+        # Guarantee exact marker ordering and 100% preservation (zero omission)
+        results.sort(key=lambda x: x[0])
+        for idx, m, marker_subs in results:
+            for s in marker_subs:
+                s.index = sub_global_idx
+                all_subtitles.append(s)
+                sub_global_idx += 1
 
         # [Phase 2.5] Secondary Marker Overlap Deduplication Pass
         # Crucial fix: SentenceBoundaryRefiner can expand marker boundaries, potentially creating overlapping cuts.
