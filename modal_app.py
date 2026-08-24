@@ -8,6 +8,7 @@ import gc
 import io
 import os
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,79 @@ except ImportError:
     image = None
 
 
+@dataclass
+class VodMetadata:
+    video_no: str | None
+    broadcast_date: str
+    broadcast_title: str
+    streamer_name: str
+
+
+def _fetch_vod_metadata(vod_url_or_no: str, streamer_name: str) -> VodMetadata:
+    """Extracts video ID and fetches metadata from Chzzk."""
+    from channel_dna.core.chzzk_client import extract_chzzk_video_no, fetch_chzzk_video_meta
+
+    broadcast_date = "20260825"
+    broadcast_title = "치지직 다시보기"
+    target_streamer = streamer_name.strip() if streamer_name else "스트리머"
+    v_no = extract_chzzk_video_no(vod_url_or_no)
+
+    if v_no:
+        meta = fetch_chzzk_video_meta(v_no)
+        if meta:
+            if meta.get("date_str"):
+                broadcast_date = meta["date_str"]
+            if meta.get("title"):
+                broadcast_title = meta["title"]
+            if not streamer_name and meta.get("channel_name"):
+                target_streamer = meta["channel_name"]
+
+    return VodMetadata(
+        video_no=v_no,
+        broadcast_date=broadcast_date,
+        broadcast_title=broadcast_title,
+        streamer_name=target_streamer,
+    )
+
+
+def _resolve_streamer_profiles(
+    facade: Any,
+    target_streamer: str,
+    solo_profile: dict[str, Any] | None,
+    collab_profile: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Resolves Solo and Collab DNA Profiles dynamically from DB or overrides."""
+    from channel_dna.core.models import (
+        PSYCHOLOGY_COLLAB_PROFILE,
+        PSYCHOLOGY_SOLO_PROFILE,
+        ChannelProfile,
+    )
+
+    if solo_profile:
+        solo_p = ChannelProfile.from_dict(solo_profile)
+    else:
+        db_solo = facade.db.get_profile(f"{target_streamer}_Solo") or facade.db.get_profile(target_streamer)
+        if db_solo:
+            solo_p = db_solo
+        else:
+            solo_p = ChannelProfile.from_dict(PSYCHOLOGY_SOLO_PROFILE)
+            solo_p.channel_name = f"{target_streamer}_Solo"
+    solo_p.profile_type = "solo"
+
+    if collab_profile:
+        collab_p = ChannelProfile.from_dict(collab_profile)
+    else:
+        db_collab = facade.db.get_profile(f"{target_streamer}_Collab")
+        if db_collab:
+            collab_p = db_collab
+        else:
+            collab_p = ChannelProfile.from_dict(PSYCHOLOGY_COLLAB_PROFILE)
+            collab_p.channel_name = f"{target_streamer}_Collab"
+    collab_p.profile_type = "collab"
+
+    return solo_p, collab_p
+
+
 def _execute_pipeline_core(
     vod_url_or_no: str,
     streamer_name: str = "",
@@ -72,65 +146,33 @@ def _execute_pipeline_core(
     selected_mode: str = "solo",
 ) -> dict[str, Any]:
     """Core execution logic shared between Cloud Modal and Local Fallback."""
-    import gc
-    from channel_dna.core.chzzk_client import extract_chzzk_video_no, fetch_chzzk_video_meta
     from channel_dna.core.guide_generator import GuideGenerator
-    from channel_dna.core.models import (
-        PSYCHOLOGY_COLLAB_PROFILE,
-        PSYCHOLOGY_SOLO_PROFILE,
-        ChannelProfile,
-    )
     from channel_dna.core.pipeline import PipelineFacade
     from channel_dna.core.utils import sanitize_filename
 
     facade = PipelineFacade()
-    target_streamer = streamer_name.strip() if streamer_name else "스트리머"
 
     try:
-        # 1. Fetch Metadata from Chzzk
-        broadcast_date = "20260825"
-        broadcast_title = "치지직 다시보기"
-        v_no = extract_chzzk_video_no(vod_url_or_no)
+        # [1/5] Metadata resolution
+        meta = _fetch_vod_metadata(vod_url_or_no, streamer_name)
+        target_streamer = meta.streamer_name
+        broadcast_date = meta.broadcast_date
+        broadcast_title = meta.broadcast_title
+        v_no = meta.video_no
+
         print(
             f"[1/5] Starting VOD Pipeline for {vod_url_or_no} "
             f"(Target Streamer: {target_streamer}, Mode: {selected_mode})",
             flush=True,
         )
-        if v_no:
-            meta = fetch_chzzk_video_meta(v_no)
-            if meta:
-                if meta.get("date_str"):
-                    broadcast_date = meta["date_str"]
-                if meta.get("title"):
-                    broadcast_title = meta["title"]
-                if not streamer_name and meta.get("channel_name"):
-                    target_streamer = meta["channel_name"]
-                print(f"[1/5] Metadata loaded: {broadcast_date} - {broadcast_title}", flush=True)
+        print(f"[1/5] Metadata loaded: {broadcast_date} - {broadcast_title}", flush=True)
 
-        # 2. Dynamic DNA Profile Resolution (Zero Hardcoding)
-        if solo_profile:
-            solo_p = ChannelProfile.from_dict(solo_profile)
-        else:
-            db_solo = facade.db.get_profile(f"{target_streamer}_Solo") or facade.db.get_profile(target_streamer)
-            if db_solo:
-                solo_p = db_solo
-            else:
-                solo_p = ChannelProfile.from_dict(PSYCHOLOGY_SOLO_PROFILE)
-                solo_p.channel_name = f"{target_streamer}_Solo"
-        solo_p.profile_type = "solo"
+        # [2/5] Dynamic DNA Profiles
+        solo_p, collab_p = _resolve_streamer_profiles(
+            facade, target_streamer, solo_profile, collab_profile
+        )
 
-        if collab_profile:
-            collab_p = ChannelProfile.from_dict(collab_profile)
-        else:
-            db_collab = facade.db.get_profile(f"{target_streamer}_Collab")
-            if db_collab:
-                collab_p = db_collab
-            else:
-                collab_p = ChannelProfile.from_dict(PSYCHOLOGY_COLLAB_PROFILE)
-                collab_p.channel_name = f"{target_streamer}_Collab"
-        collab_p.profile_type = "collab"
-
-        # 3. Audio Extraction & Fast Chat Caching (Single Download)
+        # [2/5] Audio Extraction & Fast Chat Caching (Single Download)
         print("[2/5] Extracting audio stream once into memory (16kHz)...", flush=True)
         audio_samples = facade.scanner.audio_engine.extract_audio_in_memory(vod_url_or_no)
         facade.scanner.last_audio_samples = audio_samples
@@ -170,7 +212,7 @@ def _execute_pipeline_core(
             )
             print(f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.", flush=True)
 
-        # 4. Generate Subtitles for target markers
+        # [3/5] Generate Subtitles for target markers
         target_markers = solo_markers if selected_mode == "solo" else (collab_markers if selected_mode == "collab" else solo_markers)
         target_p = solo_p if selected_mode == "solo" else (collab_p if selected_mode == "collab" else solo_p)
 
@@ -188,7 +230,7 @@ def _execute_pipeline_core(
             except Exception as e:
                 print(f"[Subtitle STT Error] {e}", flush=True)
 
-        # 5. Export XML to memory
+        # [4/5] Export XML to memory
         print("[4/5] Packaging Final Cut Pro XML & SRT subtitle files...", flush=True)
         clean_title = sanitize_filename(broadcast_title, max_length=40)
         clean_stem = f"{broadcast_date}_{clean_title}"
@@ -221,7 +263,7 @@ def _execute_pipeline_core(
             )
             collab_xml_content = collab_xml_path.read_text(encoding="utf-8") if collab_xml_path.exists() else ""
 
-        # 6. Export SRT to memory
+        # [4/5] Export SRT to memory
         srt_content = ""
         if subtitles and target_markers:
             rough_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
@@ -232,7 +274,7 @@ def _execute_pipeline_core(
                 facade.subtitle_engine.export_srt(rough_subs, str(srt_path))
                 srt_content = srt_path.read_text(encoding="utf-8") if srt_path.exists() else ""
 
-        # 7. Generate Guide Text for Discord integration
+        # [5/5] Generate Guide Text for Discord integration
         guide_content = GuideGenerator.generate_guide_text(
             vod_title=broadcast_title,
             vod_date=broadcast_date,
