@@ -469,6 +469,7 @@ async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
 
 [안내 사항]
 - 등록된 채널의 영상에 한해 분석이 지원됩니다.
+- AI 자동 추출 결과물이므로 편집 작업의 초벌(가편집) 용도로 활용해 주시기 바랍니다.
 - 입력된 방송 데이터는 작업 완료 즉시 안전하게 파기됩니다.
 """
 
