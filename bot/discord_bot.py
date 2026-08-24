@@ -588,6 +588,45 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
     await interaction.response.send_message(notice_text, view=view, ephemeral=False)
 
 
+@bot.tree.command(
+    name="초기화",
+    description="봇이 보낸 이전 안내 및 가편집 메시지들을 일괄 삭제하여 대화창을 청소합니다.",
+)
+@app_commands.describe(개수="삭제할 최근 메시지 개수 (기본값: 30개, 최대 100개)")
+async def cmd_clear_messages(interaction: discord.Interaction, 개수: int = 30):
+    await interaction.response.defer(ephemeral=True)
+    deleted_count = 0
+    channel = interaction.channel
+    limit_val = max(1, min(100, 개수))
+
+    if isinstance(channel, discord.DMChannel):
+        async for msg in channel.history(limit=limit_val):
+            if msg.author.id == bot.user.id:
+                try:
+                    await msg.delete()
+                    deleted_count += 1
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    pass
+    else:
+        try:
+            async for msg in channel.history(limit=limit_val):
+                if msg.author.id == bot.user.id:
+                    try:
+                        await msg.delete()
+                        deleted_count += 1
+                        await asyncio.sleep(0.2)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    await interaction.followup.send(
+        f"🧹 봇이 보낸 메시지 **{deleted_count}개**를 삭제하여 대화창을 깨끗하게 정리했습니다.",
+        ephemeral=True,
+    )
+
+
 # =============================================================================
 # DM Message Listener (Link Auto-Detection with Deduplication)
 # =============================================================================
