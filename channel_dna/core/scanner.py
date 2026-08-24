@@ -167,6 +167,8 @@ class VODScanner:
         progress_cb: ProgressCallback | None = None,
         cancel_event: Any | None = None,
         expected_duration_sec: float | None = None,
+        preloaded_audio: np.ndarray | None = None,
+        preloaded_chats: list[dict[str, Any]] | None = None,
     ) -> list[ScanMarker]:
         """Director-Grade Multimodal Scanning with 4-Way Audio, Speech Density, Laughter & Chat Fusion."""
         file_id = Path(vod_path).stem
@@ -177,12 +179,15 @@ class VODScanner:
         audio_samples: np.ndarray | None = None
 
         # 1. Load or Extract Audio
-        audio_samples = self.audio_engine.extract_audio_in_memory(
-            vod_path,
-            progress_cb=progress_cb,
-            cancel_event=cancel_event,
-            expected_duration_sec=expected_duration_sec,
-        )
+        if preloaded_audio is not None and len(preloaded_audio) > 0:
+            audio_samples = preloaded_audio
+        else:
+            audio_samples = self.audio_engine.extract_audio_in_memory(
+                vod_path,
+                progress_cb=progress_cb,
+                cancel_event=cancel_event,
+                expected_duration_sec=expected_duration_sec,
+            )
         self.last_audio_samples = audio_samples
 
         if cancel_event and cancel_event.is_set():
@@ -217,20 +222,24 @@ class VODScanner:
         match_no = re.search(r"(\d{6,10})", vod_path)
         video_no = match_no.group(1) if match_no else ""
 
-        chats = None
-        if video_no and total_dur_sec > 0:
+        chats = preloaded_chats
+        if chats is None and video_no and total_dur_sec > 0:
             try:
                 chats = self.chat_engine.fetch_vod_chat_logs(
                     video_no, total_dur_sec, progress_cb
                 )
-                if chats:
-                    chat_vel = self.chat_engine.compute_chat_velocity_curve(
-                        chats, total_dur_sec, bin_size_sec=1.0
+            except Exception as e:
+                _logger.debug("Silenced exception: %s", e)
+
+        if chats:
+            try:
+                chat_vel = self.chat_engine.compute_chat_velocity_curve(
+                    chats, total_dur_sec, bin_size_sec=1.0
+                )
+                if len(chat_vel) > 0:
+                    chat_curve = np.interp(
+                        times, np.arange(len(chat_vel)), chat_vel
                     )
-                    if len(chat_vel) > 0:
-                        chat_curve = np.interp(
-                            times, np.arange(len(chat_vel)), chat_vel
-                        )
             except Exception as e:
                 _logger.debug("Silenced exception: %s", e)
 

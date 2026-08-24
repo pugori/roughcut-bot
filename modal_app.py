@@ -60,6 +60,7 @@ def _execute_pipeline_core(
     broadcast_date = "20260824"
     broadcast_title = "치지직 다시보기"
     v_no = extract_chzzk_video_no(vod_url_or_no)
+    print(f"[1/5] Starting VOD Pipeline for {vod_url_or_no} (Target Streamer: {target_streamer})", flush=True)
     if v_no:
         meta = fetch_chzzk_video_meta(v_no)
         if meta:
@@ -69,6 +70,7 @@ def _execute_pipeline_core(
                 broadcast_title = meta["title"]
             if not streamer_name and meta.get("channel_name"):
                 target_streamer = meta["channel_name"]
+            print(f"[1/5] Metadata loaded: {broadcast_date} - {broadcast_title}", flush=True)
 
     # 2. Dynamic DNA Profile Resolution (Zero Hardcoding)
     if solo_profile:
@@ -93,21 +95,53 @@ def _execute_pipeline_core(
             collab_p.channel_name = f"{target_streamer}_Collab"
     collab_p.profile_type = "collab"
 
-    # 3. Audio & Tension Scan for Solo & Collab using Dynamic DNA Profiles
-    solo_markers = facade.scanner.scan(vod_url_or_no, solo_p, scan_mode="solo")
-    collab_markers = facade.scanner.scan(vod_url_or_no, collab_p, scan_mode="collab")
+    # 3. Audio Extraction & Fast Chat Caching (Single Download)
+    print(f"[2/5] Extracting audio stream once into memory (16kHz)...", flush=True)
+    audio_samples = facade.scanner.audio_engine.extract_audio_in_memory(vod_url_or_no)
+    facade.scanner.last_audio_samples = audio_samples
+
+    total_dur_sec = len(audio_samples) / 16000.0 if len(audio_samples) > 0 else 0.0
+    preloaded_chats = None
+    if v_no and total_dur_sec > 0:
+        try:
+            print(f"[2/5] Fetching live chat logs for video {v_no} ({total_dur_sec:.1f}s)...", flush=True)
+            preloaded_chats = facade.scanner.chat_engine.fetch_vod_chat_logs(v_no, total_dur_sec)
+            print(f"[2/5] Chat logs loaded: {len(preloaded_chats) if preloaded_chats else 0} entries.", flush=True)
+        except Exception as chat_err:
+            print(f"[Chat Fetch Notice] {chat_err}", flush=True)
+
+    print(f"[2/5] Scanning audio tension curves & DTW matching for Solo & Collab...", flush=True)
+    solo_markers = facade.scanner.scan(
+        vod_url_or_no,
+        solo_p,
+        scan_mode="solo",
+        preloaded_audio=audio_samples,
+        preloaded_chats=preloaded_chats,
+    )
+    print(f"[2/5] Solo scan complete: {len(solo_markers)} highlight markers identified.", flush=True)
+    collab_markers = facade.scanner.scan(
+        vod_url_or_no,
+        collab_p,
+        scan_mode="collab",
+        preloaded_audio=audio_samples,
+        preloaded_chats=preloaded_chats,
+    )
+    print(f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.", flush=True)
 
     # 4. Generate Subtitles (Single Pass STT with Whisper Large-v3)
     subtitles = []
     if solo_markers:
         try:
+            print(f"[3/5] Transcribing speech with Whisper AI on GPU & Kiwi alignment...", flush=True)
             subtitles = facade._generate_subtitles(
                 vod_url_or_no, broadcast_date, broadcast_title, solo_markers, solo_p, None
             )
+            print(f"[3/5] Subtitle transcription complete: {len(subtitles)} dialogue segments.", flush=True)
         except Exception as e:
-            print(f"[Subtitle STT Error] {e}")
+            print(f"[Subtitle STT Error] {e}", flush=True)
 
     # 5. Export Solo XML to memory
+    print(f"[4/5] Packaging Final Cut Pro XML & SRT subtitle files...", flush=True)
     import tempfile
     from channel_dna.core.utils import sanitize_filename
 
@@ -155,6 +189,7 @@ def _execute_pipeline_core(
         vod_date=broadcast_date,
         total_markers=len(solo_markers),
     )
+    print(f"[5/5] All 4 files successfully generated! Returning package to Discord bot.", flush=True)
 
     return {
         "success": True,
@@ -206,6 +241,13 @@ if app is not None and image is not None:
                 print(f"[KeepAlive Ping] Render status: {resp.status}")
         except Exception as e:
             print(f"[KeepAlive Ping Notice] {e}")
+
+
+    @app.local_entrypoint()
+    def test_run(vod_no: str = "14728683", streamer: str = "양망두"):
+        print(f"Invoking process_chzzk_vod_cloud on Modal for {vod_no} ({streamer})...")
+        res = process_chzzk_vod_cloud.remote(vod_no, streamer)
+        print("Test Run Result:", res.get("success"), res.get("broadcast_title"))
 
 
 def process_chzzk_vod_local(
