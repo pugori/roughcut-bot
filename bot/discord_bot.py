@@ -220,6 +220,77 @@ async def cmd_unbind(interaction: discord.Interaction, 스트리머: str):
 
 
 
+# Active Video Task Registry for Cancelling Previous Jobs upon Re-selection
+_active_video_tasks: dict[str, asyncio.Task] = {}
+
+
+class ModeSelectionView(discord.ui.View):
+    def __init__(
+        self,
+        vod_url_or_no: str,
+        streamer_name: str,
+        target_dna_profile: str,
+        discord_user_id: int,
+    ):
+        super().__init__(timeout=None)
+        self.vod_url_or_no = vod_url_or_no
+        self.streamer_name = streamer_name
+        self.target_dna_profile = target_dna_profile
+        self.discord_user_id = discord_user_id
+        self.video_no = extract_chzzk_video_no(vod_url_or_no) or vod_url_or_no
+
+    @discord.ui.button(
+        label="🎙️ 솔로 모드",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_solo_mode",
+    )
+    async def solo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_selection(interaction, "solo", "솔로 모드")
+
+    @discord.ui.button(
+        label="👥 합방 모드",
+        style=discord.ButtonStyle.success,
+        custom_id="btn_collab_mode",
+    )
+    async def collab_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_selection(interaction, "collab", "합방 모드")
+
+    async def _handle_selection(self, interaction: discord.Interaction, mode: str, mode_kr: str):
+        if interaction.user.id != self.discord_user_id:
+            await interaction.response.send_message("❌ 본인의 알림만 선택할 수 있습니다.", ephemeral=True)
+            return
+
+        # 1. Cancel previous active task for this video if still running
+        if self.video_no in _active_video_tasks:
+            prev_task = _active_video_tasks[self.video_no]
+            if not prev_task.done():
+                prev_task.cancel()
+                print(f"[Task Cancelled] Aborted previous task for video {self.video_no} due to re-selection.")
+
+        # 2. Disable buttons to prevent duplicate clicks
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+
+        await interaction.response.edit_message(
+            content=f"✅ **[{mode_kr}]**가 선택되었습니다. 다시보기 가편집 및 AI 자막 생성을 시작합니다.",
+            view=self,
+        )
+
+        # 3. Launch new pipeline task and track in registry
+        task = asyncio.create_task(
+            execute_vod_pipeline_and_deliver(
+                vod_url_or_no=self.vod_url_or_no,
+                streamer_name=self.streamer_name,
+                target_dna_profile=self.target_dna_profile,
+                discord_user_id=self.discord_user_id,
+                status_channel=interaction.channel,
+                selected_mode=mode,
+            )
+        )
+        _active_video_tasks[self.video_no] = task
+
+
 # =============================================================================
 # Core Pipeline Execution & DM Delivery Helper
 # =============================================================================
@@ -231,8 +302,9 @@ async def execute_vod_pipeline_and_deliver(
     target_dna_profile: str,
     discord_user_id: int,
     status_channel: discord.abc.Messageable | None = None,
+    selected_mode: str = "solo",
 ) -> bool:
-    """Executes the Two-Track Modal GPU pipeline and delivers the 4 files to the user's DM."""
+    """Executes the Two-Track Modal GPU pipeline and delivers the files to the user's DM."""
     target_dna = (target_dna_profile or streamer_name).strip()
     solo_p = db.get_profile(f"{target_dna}_Solo") or db.get_profile(target_dna)
     collab_p = db.get_profile(f"{target_dna}_Collab")
@@ -255,11 +327,13 @@ async def execute_vod_pipeline_and_deliver(
             except Exception:
                 await asyncio.sleep(8)
 
+    mode_kr = "솔로 모드" if selected_mode == "solo" else ("합방 모드" if selected_mode == "collab" else "전체 모드")
+
     if status_channel:
         try:
             status_msg = await status_channel.send(
-                "⏳ **다시보기 분석을 시작합니다.**\n"
-                "• 방송 분량에 따라 수 분 소요될 수 있으며, 완료되면 이곳으로 4종 편집 패키지를 보내드립니다.\n"
+                f"⏳ **[{mode_kr}] 다시보기 분석을 시작합니다.**\n"
+                "• 방송 분량에 따라 수 분 소요될 수 있으며, 완료되면 이곳으로 가편집 패키지를 보내드립니다.\n"
                 "• ⚙️ *진행 상태: 음성 수집 및 AI 하이라이트 연산 중...*"
             )
         except Exception:
@@ -281,6 +355,7 @@ async def execute_vod_pipeline_and_deliver(
                     streamer_name,
                     solo_dict,
                     collab_dict,
+                    selected_mode,
                 )
             except Exception as cloud_err:
                 print(f"[Modal Cloud Failed, fallback to local] {cloud_err}")
@@ -291,6 +366,7 @@ async def execute_vod_pipeline_and_deliver(
                     streamer_name,
                     solo_dict,
                     collab_dict,
+                    selected_mode,
                 )
         else:
             from modal_app import process_chzzk_vod_local
@@ -300,6 +376,7 @@ async def execute_vod_pipeline_and_deliver(
                 streamer_name,
                 solo_dict,
                 collab_dict,
+                selected_mode,
             )
     finally:
         stop_heartbeat.set()
@@ -317,8 +394,8 @@ async def execute_vod_pipeline_and_deliver(
     if status_msg:
         try:
             await status_msg.edit(
-                content="✅ **다시보기 분석 및 AI 자막 생성이 완료되었습니다!**\n"
-                        "• 아래 4개 파일을 확인해 주세요."
+                content=f"✅ **[{mode_kr}] 분석 및 AI 자막 생성이 완료되었습니다!**\n"
+                        "• 아래 파일을 확인해 주세요."
             )
         except Exception:
             pass
@@ -333,6 +410,8 @@ async def execute_vod_pipeline_and_deliver(
     guide_txt = result.get("guide_txt_content", "")
 
     files_to_send = []
+    file_desc_lines = []
+
     if solo_xml:
         files_to_send.append(
             discord.File(
@@ -340,6 +419,8 @@ async def execute_vod_pipeline_and_deliver(
                 filename=f"{b_date}_{streamer_name}_Solo_60fps.xml",
             )
         )
+        file_desc_lines.append("• Solo (XML): 개인 방송 기준 가편집 타임라인 파일")
+
     if collab_xml:
         files_to_send.append(
             discord.File(
@@ -347,6 +428,8 @@ async def execute_vod_pipeline_and_deliver(
                 filename=f"{b_date}_{streamer_name}_Collab_60fps.xml",
             )
         )
+        file_desc_lines.append("• Collab (XML): 합방 및 다인 방송 기준 가편집 타임라인 파일")
+
     if srt_content:
         files_to_send.append(
             discord.File(
@@ -354,6 +437,8 @@ async def execute_vod_pipeline_and_deliver(
                 filename=f"{b_date}_{streamer_name}_자막.srt",
             )
         )
+        file_desc_lines.append("• 자막 (SRT): 음성 인식 기반 초벌 자막 파일")
+
     if guide_txt:
         files_to_send.append(
             discord.File(
@@ -361,8 +446,10 @@ async def execute_vod_pipeline_and_deliver(
                 filename="가이드.txt",
             )
         )
+        file_desc_lines.append("• 가이드 (TXT): 편집기 불러오기 및 타임라인 연결 가이드")
 
-    delivery_msg = f"""[가편집 파일 전송 안내]
+    desc_block = "\n".join(file_desc_lines)
+    delivery_msg = f"""[가편집 파일 전송 안내 - {mode_kr}]
 
 • 방송 제목: {b_title}
 • 방송 일시: {b_date}
@@ -372,10 +459,7 @@ async def execute_vod_pipeline_and_deliver(
 👉 {rec_filename}
 
 [2. 첨부 파일 구성]
-• Solo (XML): 개인 방송 기준 가편집 타임라인 파일
-• Collab (XML): 합방 및 다인 방송 기준 가편집 타임라인 파일
-• 자막 (SRT): 음성 인식 기반 초벌 자막 파일
-• 가이드 (TXT): 편집기 불러오기 및 타임라인 연결 가이드
+{desc_block}
 """
 
     user = await bot.fetch_user(discord_user_id)
@@ -479,20 +563,21 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
     st_name = binding["streamer_name"]
     target_dna = binding.get("target_dna_profile") or st_name
 
-    await interaction.response.send_message(
-        "⏳ 요청하신 다시보기 분석을 시작합니다. (약 2~3분 소요)",
-        ephemeral=False,
+    v_url = f"https://chzzk.naver.com/video/{v_no}" if v_no else 다시보기링크.strip()
+    view = ModeSelectionView(
+        vod_url_or_no=v_url,
+        streamer_name=st_name,
+        target_dna_profile=target_dna,
+        discord_user_id=user_id,
     )
-
-    asyncio.create_task(
-        execute_vod_pipeline_and_deliver(
-            vod_url_or_no=다시보기링크.strip(),
-            streamer_name=st_name,
-            target_dna_profile=target_dna,
-            discord_user_id=user_id,
-            status_channel=None,
-        )
+    notice_text = (
+        "🎬 **다시보기 링크가 접수되었습니다.**\n"
+        "진행할 가편집 스타일을 선택해 주세요.\n\n"
+        f"🔗 **영상 링크**: `{v_url}`\n\n"
+        "• 🎙️ **솔로 모드**: 개인 방송 텐션 및 호흡 기준 가편집\n"
+        "• 👥 **합방 모드**: 디스코드 및 다인 방송 텐션 기준 가편집"
     )
+    await interaction.response.send_message(notice_text, view=view, ephemeral=False)
 
 
 # =============================================================================
@@ -557,15 +642,21 @@ async def on_message(message: discord.Message):
             st_name = binding["streamer_name"]
             target_dna = binding.get("target_dna_profile") or st_name
 
-            asyncio.create_task(
-                execute_vod_pipeline_and_deliver(
-                    vod_url_or_no=clean_content,
-                    streamer_name=st_name,
-                    target_dna_profile=target_dna,
-                    discord_user_id=user_id,
-                    status_channel=message.channel,
-                )
+            v_url = f"https://chzzk.naver.com/video/{v_no}"
+            view = ModeSelectionView(
+                vod_url_or_no=v_url,
+                streamer_name=st_name,
+                target_dna_profile=target_dna,
+                discord_user_id=user_id,
             )
+            notice_text = (
+                "🎬 **다시보기 링크가 접수되었습니다.**\n"
+                "진행할 가편집 스타일을 선택해 주세요.\n\n"
+                f"🔗 **영상 링크**: `{v_url}`\n\n"
+                "• 🎙️ **솔로 모드**: 개인 방송 텐션 및 호흡 기준 가편집\n"
+                "• 👥 **합방 모드**: 디스코드 및 다인 방송 텐션 기준 가편집"
+            )
+            await message.channel.send(content=notice_text, view=view)
 
 
 # =============================================================================
@@ -608,14 +699,24 @@ async def chzzk_watcher_loop():
 
             print(f"[New VOD Detected] {st_name} - {v_title} ({v_duration}s).")
 
-            success = await execute_vod_pipeline_and_deliver(
-                vod_url_or_no=v_url,
-                streamer_name=st_name,
-                target_dna_profile=target_dna,
-                discord_user_id=discord_user_id,
-            )
-
-            if success:
+            user = await bot.fetch_user(discord_user_id)
+            if user:
+                view = ModeSelectionView(
+                    vod_url_or_no=v_url,
+                    streamer_name=st_name,
+                    target_dna_profile=target_dna,
+                    discord_user_id=discord_user_id,
+                )
+                notice_text = (
+                    "🔔 **방송 종료가 감지되었습니다.**\n"
+                    "다시보기 가편집을 진행하시려면 아래 버튼 중 하나를 선택해 주세요.\n\n"
+                    f"🔗 **영상 링크**: `{v_url}`\n\n"
+                    "• 🎙️ **솔로 모드**: 개인 방송 텐션 및 호흡 기준 가편집 타임라인\n"
+                    "• 👥 **합방 모드**: 디스코드 및 다인 방송 텐션 기준 가편집 타임라인\n\n"
+                    "• ⏱️ *버튼을 누르지 않으시면 작업이 진행되지 않습니다.*\n"
+                    "• 💡 *실수로 잘못 누르셨다면 위 영상 링크를 다시 보내주시면 언제든 재선택하실 수 있습니다.*"
+                )
+                await user.send(content=notice_text, view=view)
                 db.update_last_processed_video_no(ch_id, v_no)
 
         except Exception as err:

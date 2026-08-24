@@ -52,6 +52,7 @@ def _execute_pipeline_core(
     streamer_name: str = "",
     solo_profile: dict[str, Any] | None = None,
     collab_profile: dict[str, Any] | None = None,
+    selected_mode: str = "solo",
 ) -> dict[str, Any]:
     """Core execution logic shared between Cloud Modal and Local Fallback."""
     from channel_dna.core.chzzk_client import extract_chzzk_video_no, fetch_chzzk_video_meta
@@ -70,7 +71,7 @@ def _execute_pipeline_core(
     broadcast_date = "20260824"
     broadcast_title = "치지직 다시보기"
     v_no = extract_chzzk_video_no(vod_url_or_no)
-    print(f"[1/5] Starting VOD Pipeline for {vod_url_or_no} (Target Streamer: {target_streamer})", flush=True)
+    print(f"[1/5] Starting VOD Pipeline for {vod_url_or_no} (Target Streamer: {target_streamer}, Mode: {selected_mode})", flush=True)
     if v_no:
         meta = fetch_chzzk_video_meta(v_no)
         if meta:
@@ -120,37 +121,47 @@ def _execute_pipeline_core(
         except Exception as chat_err:
             print(f"[Chat Fetch Notice] {chat_err}", flush=True)
 
-    print(f"[2/5] Scanning audio tension curves & DTW matching for Solo & Collab...", flush=True)
-    solo_markers = facade.scanner.scan(
-        vod_url_or_no,
-        solo_p,
-        scan_mode="solo",
-        preloaded_audio=audio_samples,
-        preloaded_chats=preloaded_chats,
-    )
-    print(f"[2/5] Solo scan complete: {len(solo_markers)} highlight markers identified.", flush=True)
-    collab_markers = facade.scanner.scan(
-        vod_url_or_no,
-        collab_p,
-        scan_mode="collab",
-        preloaded_audio=audio_samples,
-        preloaded_chats=preloaded_chats,
-    )
-    print(f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.", flush=True)
+    solo_markers = []
+    collab_markers = []
 
-    # 4. Generate Subtitles (Single Pass STT with Whisper Large-v3)
+    if selected_mode in ("solo", "both"):
+        print(f"[2/5] Scanning audio tension curves & DTW matching for Solo...", flush=True)
+        solo_markers = facade.scanner.scan(
+            vod_url_or_no,
+            solo_p,
+            scan_mode="solo",
+            preloaded_audio=audio_samples,
+            preloaded_chats=preloaded_chats,
+        )
+        print(f"[2/5] Solo scan complete: {len(solo_markers)} highlight markers identified.", flush=True)
+
+    if selected_mode in ("collab", "both"):
+        print(f"[2/5] Scanning audio tension curves & DTW matching for Collab...", flush=True)
+        collab_markers = facade.scanner.scan(
+            vod_url_or_no,
+            collab_p,
+            scan_mode="collab",
+            preloaded_audio=audio_samples,
+            preloaded_chats=preloaded_chats,
+        )
+        print(f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.", flush=True)
+
+    # 4. Generate Subtitles for target markers
+    target_markers = solo_markers if selected_mode == "solo" else (collab_markers if selected_mode == "collab" else solo_markers)
+    target_p = solo_p if selected_mode == "solo" else (collab_p if selected_mode == "collab" else solo_p)
+
     subtitles = []
-    if solo_markers:
+    if target_markers:
         try:
-            print(f"[3/5] Transcribing speech with Whisper AI on GPU & Kiwi alignment...", flush=True)
+            print(f"[3/5] Transcribing speech with Whisper AI on GPU & Kiwi alignment ({len(target_markers)} cuts)...", flush=True)
             subtitles = facade._generate_subtitles(
-                vod_url_or_no, broadcast_date, broadcast_title, solo_markers, solo_p, None
+                vod_url_or_no, broadcast_date, broadcast_title, target_markers, target_p, None
             )
             print(f"[3/5] Subtitle transcription complete: {len(subtitles)} dialogue segments.", flush=True)
         except Exception as e:
             print(f"[Subtitle STT Error] {e}", flush=True)
 
-    # 5. Export Solo XML to memory
+    # 5. Export XML to memory
     print(f"[4/5] Packaging Final Cut Pro XML & SRT subtitle files...", flush=True)
     import tempfile
     from channel_dna.core.utils import sanitize_filename
@@ -159,34 +170,38 @@ def _execute_pipeline_core(
     clean_stem = f"{broadcast_date}_{clean_title}"
     tmp_dir = Path(tempfile.gettempdir())
 
-    solo_xml_path = tmp_dir / f"{clean_stem}_Solo_60fps.xml"
-    facade.exporter.export(
-        solo_markers,
-        vod_url_or_no,
-        str(solo_xml_path),
-        fps=60.0,
-        export_format="xml",
-        video_file_name=f"{clean_stem}.mp4",
-    )
-    solo_xml_content = solo_xml_path.read_text(encoding="utf-8") if solo_xml_path.exists() else ""
+    solo_xml_content = ""
+    collab_xml_content = ""
 
-    # 6. Export Collab XML to memory
-    collab_xml_path = tmp_dir / f"{clean_stem}_Collab_60fps.xml"
-    facade.exporter.export(
-        collab_markers,
-        vod_url_or_no,
-        str(collab_xml_path),
-        fps=60.0,
-        export_format="xml",
-        video_file_name=f"{clean_stem}.mp4",
-    )
-    collab_xml_content = collab_xml_path.read_text(encoding="utf-8") if collab_xml_path.exists() else ""
+    if solo_markers:
+        solo_xml_path = tmp_dir / f"{clean_stem}_Solo_60fps.xml"
+        facade.exporter.export(
+            solo_markers,
+            vod_url_or_no,
+            str(solo_xml_path),
+            fps=60.0,
+            export_format="xml",
+            video_file_name=f"{clean_stem}.mp4",
+        )
+        solo_xml_content = solo_xml_path.read_text(encoding="utf-8") if solo_xml_path.exists() else ""
+
+    if collab_markers:
+        collab_xml_path = tmp_dir / f"{clean_stem}_Collab_60fps.xml"
+        facade.exporter.export(
+            collab_markers,
+            vod_url_or_no,
+            str(collab_xml_path),
+            fps=60.0,
+            export_format="xml",
+            video_file_name=f"{clean_stem}.mp4",
+        )
+        collab_xml_content = collab_xml_path.read_text(encoding="utf-8") if collab_xml_path.exists() else ""
 
     # 7. Export SRT to memory
     srt_content = ""
-    if subtitles:
+    if subtitles and target_markers:
         rough_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
-            subtitles, solo_markers, fps=60.0
+            subtitles, target_markers, fps=60.0
         )
         if rough_subs:
             srt_path = tmp_dir / f"{clean_stem}_자막.srt"
@@ -197,12 +212,13 @@ def _execute_pipeline_core(
     guide_content = GuideGenerator.generate_guide_text(
         vod_title=broadcast_title,
         vod_date=broadcast_date,
-        total_markers=len(solo_markers),
+        total_markers=len(target_markers),
     )
-    print(f"[5/5] All 4 files successfully generated! Returning package to Discord bot.", flush=True)
+    print(f"[5/5] Package successfully generated! Returning package to Discord bot.", flush=True)
 
     return {
         "success": True,
+        "selected_mode": selected_mode,
         "streamer_name": target_streamer,
         "broadcast_title": broadcast_title,
         "broadcast_date": broadcast_date,
@@ -215,6 +231,19 @@ def _execute_pipeline_core(
         "collab_marker_count": len(collab_markers),
         "sub_count": len(subtitles),
     }
+
+
+def process_chzzk_vod_local(
+    vod_url_or_no: str,
+    streamer_name: str = "",
+    solo_profile: dict[str, Any] | None = None,
+    collab_profile: dict[str, Any] | None = None,
+    selected_mode: str = "solo",
+) -> dict[str, Any]:
+    """Local fallback runner."""
+    return _execute_pipeline_core(
+        vod_url_or_no, streamer_name, solo_profile, collab_profile, selected_mode
+    )
 
 
 if app is not None and image is not None:
@@ -230,10 +259,11 @@ if app is not None and image is not None:
         streamer_name: str = "",
         solo_profile: dict[str, Any] | None = None,
         collab_profile: dict[str, Any] | None = None,
+        selected_mode: str = "solo",
     ) -> dict[str, Any]:
         """Serverless Cloud function executed on NVIDIA L4 GPU with dynamic DNA profile."""
         return _execute_pipeline_core(
-            vod_url_or_no, streamer_name, solo_profile, collab_profile
+            vod_url_or_no, streamer_name, solo_profile, collab_profile, selected_mode
         )
 
     @app.function(
