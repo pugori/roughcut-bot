@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from channel_dna.core.models import ProgressCallback, ScanMarker
+from channel_dna.core.models import ChannelProfile, ProgressCallback, ScanMarker
 from channel_dna.core.sentence_boundary import SentenceBoundaryRefiner
 from channel_dna.core.subtitle_formatter import (
     KoreanSentenceFormatter,
@@ -149,29 +149,22 @@ class SubtitleEngine:
         return self._model
 
     def _get_batched_model(self, progress_cb=None):
-        raw_model = self._get_model(progress_cb)
-        if raw_model is None:
-            return None
-        if not hasattr(self, "_batched_model") or self._batched_model is None:
-            try:
-                from faster_whisper import BatchedInferencePipeline
-                self._batched_model = BatchedInferencePipeline(model=raw_model)
-            except Exception:
-                self._batched_model = raw_model
-        return self._batched_model
+        return self._get_model(progress_cb)
 
     def generate_subtitles_for_markers(
         self,
         audio_data: np.ndarray | None = None,
+        source_path: str = "",
+        broadcast_date: str = "",
+        broadcast_title: str = "",
         markers: list[ScanMarker] | None = None,
+        profile: ChannelProfile | None = None,
+        progress_cb: ProgressCallback | None = None,
         sr: int = 16000,
         custom_vocab_prompt: str = "",
-        progress_cb: ProgressCallback | None = None,
-        source_path: str | None = None,
-        profile: Any | None = None,
     ) -> list[SubtitleItem]:
         """Generate high-accuracy, zero-miss subtitles with Large-v3-Turbo and Kiwi NLP structuring."""
-        model = self._get_batched_model(progress_cb) or self._get_model(progress_cb)
+        model = self._get_model(progress_cb)
         if model is None or not markers:
             return []
 
@@ -243,24 +236,20 @@ class SubtitleEngine:
             vocal_audio = slice_audio
 
             try:
-                # High-Speed Accurate Whisper-Turbo Greedy Transcription
+                # High-Speed Accurate Direct GPU Whisper-Turbo Transcription (Zero VAD Overhead)
                 transcribe_kwargs = dict(
                     language="ko",
                     initial_prompt=initial_prompt,
                     beam_size=1,
+                    best_of=1,
                     temperature=0.0,
                     condition_on_previous_text=False,
                     repetition_penalty=1.15,
                     compression_ratio_threshold=2.4,
                     no_speech_threshold=0.60,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=100, speech_pad_ms=150),
+                    vad_filter=False,  # Bypasses VAD overhead completely
                     word_timestamps=True,
                 )
-                if hasattr(model, "model"):  # BatchedInferencePipeline wrapper
-                    transcribe_kwargs["batch_size"] = 16 if self.device == "cuda" else 4
-                else:
-                    transcribe_kwargs["best_of"] = 1
 
                 segments_gen, info = model.transcribe(vocal_audio, **transcribe_kwargs)
 
