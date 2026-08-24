@@ -131,7 +131,20 @@ class SubtitleEngine:
                     "SubtitleInit", 0.88, "Whisper Large-v3-Turbo 고성능 한국어 전사 엔진 로드 중..."
                 )
             import os
+            import sys
+            import glob
             os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+            if sys.platform != "win32":
+                try:
+                    import ctypes
+                    for p in glob.glob(os.path.join(sys.prefix, "lib", "python*", "site-packages", "nvidia", "*", "lib")):
+                        for so in glob.glob(os.path.join(p, "*.so*")):
+                            try:
+                                ctypes.CDLL(so)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
             from faster_whisper import WhisperModel
             safe_threads = 4
             num_w = 4 if self.device == "cuda" else 1

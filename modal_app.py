@@ -36,6 +36,8 @@ try:
         .pip_install(
             "torch>=2.1.0",
             "torchaudio>=2.1.0",
+            "nvidia-cublas-cu12",
+            "nvidia-cudnn-cu12",
             "faster-whisper>=1.0.0",
             "kiwipiepy>=0.18.0",
             "librosa>=0.10.0",
@@ -46,6 +48,12 @@ try:
             "yt-dlp>=2024.1.0",
             "numpy>=1.24.0",
             "tqdm>=4.66.0",
+        )
+        .env(
+            {
+                "LD_LIBRARY_PATH": "/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:$LD_LIBRARY_PATH",
+                "HF_HUB_DISABLE_SYMLINKS_WARNING": "1",
+            }
         )
         .run_function(download_models)
         .add_local_python_source("channel_dna")
