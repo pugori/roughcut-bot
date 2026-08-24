@@ -246,13 +246,13 @@ class SubtitleEngine:
             vocal_audio = slice_audio
 
             try:
-                # High-Recall Whisper Transcription (Beam size 3 + relaxed VAD to prevent missing words)
+                # High-Speed Accurate Whisper-Turbo Greedy Transcription
                 segments_gen, info = model.transcribe(
                     vocal_audio,
                     language="ko",
                     initial_prompt=initial_prompt,
-                    beam_size=3,
-                    best_of=2,
+                    beam_size=1,
+                    best_of=1,
                     temperature=0.0,
                     condition_on_previous_text=False,
                     repetition_penalty=1.15,

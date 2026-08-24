@@ -221,7 +221,8 @@ if app is not None and image is not None:
     @app.function(
         image=image,
         gpu="L4",
-        timeout=600,
+        timeout=3600,
+        cpu=4.0,
         memory=16384,
     )
     def process_chzzk_vod_cloud(
