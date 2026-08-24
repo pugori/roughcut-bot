@@ -121,12 +121,15 @@ class SubtitleEngine:
                 progress_cb(
                     "SubtitleInit", 0.88, "Whisper Large-v3-Turbo 고성능 한국어 전사 엔진 로드 중..."
                 )
+            import os
+            os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
             from faster_whisper import WhisperModel
-            safe_threads = 8
+            safe_threads = 4
+            num_w = 4 if self.device == "cuda" else 1
 
             candidate_models = [
-                self.model_size,
                 "deepdml/faster-whisper-large-v3-turbo-ct2",
+                self.model_size,
                 "large-v3-turbo",
                 "small",
             ]
@@ -137,7 +140,7 @@ class SubtitleEngine:
                         device=self.device,
                         compute_type=self.compute_type,
                         cpu_threads=safe_threads,
-                        num_workers=1,
+                        num_workers=num_w,
                     )
                     break
                 except Exception as e:
@@ -240,7 +243,7 @@ class SubtitleEngine:
             vocal_audio = slice_audio
 
             try:
-                # High-Speed Accurate Batched Whisper-Turbo Greedy Transcription
+                # High-Speed Accurate Whisper-Turbo Greedy Transcription
                 transcribe_kwargs = dict(
                     language="ko",
                     initial_prompt=initial_prompt,
@@ -250,8 +253,7 @@ class SubtitleEngine:
                     repetition_penalty=1.15,
                     compression_ratio_threshold=2.4,
                     no_speech_threshold=0.60,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=150, speech_pad_ms=200),
+                    vad_filter=False,  # Already silence-trimmed by preprocessor
                     word_timestamps=True,
                 )
                 if hasattr(model, "model"):  # BatchedInferencePipeline wrapper
@@ -319,8 +321,18 @@ class SubtitleEngine:
 
         import concurrent.futures
         num_workers = 6 if self.device == "cuda" else 2
+        results = []
+        completed_count = 0
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as pool:
-            results = list(pool.map(_process_marker_task, enumerate(markers, 1)))
+            futures = [pool.submit(_process_marker_task, item) for item in enumerate(markers, 1)]
+            for fut in concurrent.futures.as_completed(futures):
+                res = fut.result()
+                results.append(res)
+                completed_count += 1
+                if completed_count % 30 == 0 or completed_count == total_markers:
+                    pct = (completed_count / total_markers) * 100.0
+                    print(f"[3/5] GPU STT Progress: {completed_count}/{total_markers} cuts transcribed ({pct:.0f}%)...", flush=True)
 
         # Guarantee exact marker ordering and 100% preservation (zero omission)
         results.sort(key=lambda x: x[0])
