@@ -30,6 +30,7 @@ export const ExtractTab = ({
 }: ExtractTabProps) => {
   const [streamerNameInput, setStreamerNameInput] = useState(streamers[0] || "양망두");
   const [youtubeUrlInput, setYoutubeUrlInput] = useState("https://www.youtube.com/@양망두");
+  const [chzzkUrlInput, setChzzkUrlInput] = useState("https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250");
   const [batchCountOption, setBatchCountOption] = useState("최신/인기 20편");
   const [sortOption, setSortOption] = useState("밸런스 (인기+최신 균등)");
   const [isCollecting, setIsCollecting] = useState(false);
@@ -154,9 +155,9 @@ export const ExtractTab = ({
           </select>
         </div>
 
-        {/* Row 2 */}
+        {/* Row 2: YouTube */}
         <div className="grid grid-cols-12 gap-2 items-center">
-          <span className="col-span-2 font-bold text-slate-300">📺 유튜브 채널 주소:</span>
+          <span className="col-span-2 font-bold text-slate-300">📺 유튜브 채널:</span>
           <input
             type="text"
             value={youtubeUrlInput}
@@ -181,6 +182,18 @@ export const ExtractTab = ({
             <option>최신/인기 10편</option>
             <option>최신/인기 20편</option>
           </select>
+        </div>
+
+        {/* Row 3: Chzzk */}
+        <div className="grid grid-cols-12 gap-2 items-center">
+          <span className="col-span-2 font-bold text-slate-300">🟢 치지직 채널:</span>
+          <input
+            type="text"
+            placeholder="치지직 채널 링크 또는 32자리 ID (예: https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250)"
+            value={chzzkUrlInput}
+            onChange={(e) => setChzzkUrlInput(e.target.value)}
+            className="col-span-10 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-[#00E5FF]"
+          />
         </div>
 
         {/* Action Button */}
