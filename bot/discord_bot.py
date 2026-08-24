@@ -59,6 +59,25 @@ def generate_secure_passcode(prefix: str = "CDNA") -> str:
     return f"{clean_prefix}-{rand_chars}"
 
 
+from aiohttp import web
+
+
+async def handle_health(request):
+    return web.Response(text="RoughCut Discord Bot 24/7 is Live!")
+
+
+async def start_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    app = web.Application()
+    app.router.add_get("/", handle_health)
+    app.router.add_get("/health", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"[OK] Health check server listening on port {port}")
+
+
 # =============================================================================
 # Bot Lifecycle Events
 # =============================================================================
@@ -67,6 +86,11 @@ def generate_secure_passcode(prefix: str = "CDNA") -> str:
 @bot.event
 async def on_ready():
     print(f"[OK] RoughCut Discord Bot logged in as: {bot.user} (ID: {bot.user.id})")
+    try:
+        await start_health_server()
+    except Exception as e:
+        print(f"[Health Server Warning] {e}")
+
     try:
         synced = await bot.tree.sync()
         print(f"[OK] Synced {len(synced)} slash commands globally.")
