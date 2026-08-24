@@ -167,7 +167,8 @@ async def cmd_unbind(interaction: discord.Interaction, 스트리머: str):
 
 
 
-# Active Video Task Registry for Cancelling Previous Jobs upon Re-selection
+# Active User & Video Task Registry for Cancelling Previous Jobs upon Re-selection
+_active_user_tasks: dict[int, asyncio.Task] = {}
 _active_video_tasks: dict[str, asyncio.Task] = {}
 
 
@@ -207,7 +208,13 @@ class ModeSelectionView(discord.ui.View):
             await interaction.response.send_message("❌ 본인의 알림만 선택할 수 있습니다.", ephemeral=True)
             return
 
-        # 1. Cancel previous active task for this video if still running
+        # 1. Cancel previous active task for this user if still running
+        if self.discord_user_id in _active_user_tasks:
+            prev_user_task = _active_user_tasks[self.discord_user_id]
+            if not prev_user_task.done():
+                prev_user_task.cancel()
+                print(f"[Task Cancelled] Aborted previous task for user {self.discord_user_id} due to new selection.")
+
         if self.video_no in _active_video_tasks:
             prev_task = _active_video_tasks[self.video_no]
             if not prev_task.done():
@@ -235,6 +242,7 @@ class ModeSelectionView(discord.ui.View):
                 selected_mode=mode,
             )
         )
+        _active_user_tasks[self.discord_user_id] = task
         _active_video_tasks[self.video_no] = task
 
 
