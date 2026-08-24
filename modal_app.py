@@ -190,6 +190,23 @@ if app is not None and image is not None:
             vod_url_or_no, streamer_name, solo_profile, collab_profile
         )
 
+    @app.function(
+        schedule=modal.Period(minutes=5),
+        timeout=30,
+    )
+    def keep_render_bot_awake():
+        """Periodically pings the Render Web Service every 5 minutes to prevent sleep."""
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                "https://roughcut-bot.onrender.com/health",
+                headers={"User-Agent": "RoughCut-KeepAlive/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                print(f"[KeepAlive Ping] Render status: {resp.status}")
+        except Exception as e:
+            print(f"[KeepAlive Ping Notice] {e}")
+
 
 def process_chzzk_vod_local(
     vod_url_or_no: str,

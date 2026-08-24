@@ -595,13 +595,24 @@ async def before_watcher_loop():
     await bot.wait_until_ready()
 
 
+async def main():
+    try:
+        await start_health_server()
+    except Exception as e:
+        print(f"[Health Server Startup Warning] {e}")
+    await bot.start(config.BOT_TOKEN)
+
+
 def run_discord_bot():
     """Entry point for running the Discord bot."""
     acquire_singleton_lock()
     if not config.BOT_TOKEN or config.BOT_TOKEN == "YOUR_DISCORD_BOT_TOKEN_HERE":
         print("⚠ DISCORD_BOT_TOKEN is not set in bot/config.py or environment.")
         return
-    bot.run(config.BOT_TOKEN)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
