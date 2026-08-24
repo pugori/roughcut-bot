@@ -254,9 +254,12 @@ async def execute_vod_pipeline_and_deliver(
     # Run Pipeline (Modal Cloud or Local Fallback)
     if config.USE_MODAL_CLOUD:
         try:
-            from modal_app import process_chzzk_vod_cloud
+            import modal
+            remote_fn = modal.Function.from_name(
+                "channel-dna-cloud", "process_chzzk_vod_cloud"
+            )
             result = await asyncio.to_thread(
-                process_chzzk_vod_cloud.remote,
+                remote_fn.remote,
                 vod_url_or_no,
                 streamer_name,
                 solo_dict,
