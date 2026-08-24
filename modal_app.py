@@ -4,8 +4,10 @@ Deploys on NVIDIA L4 GPU with 2-minute turn-around for 6-hour broadcasts.
 Exports both Solo XML and Collab XML alongside Smart Subtitles (SRT) and Guide (TXT).
 """
 
+import gc
 import io
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
