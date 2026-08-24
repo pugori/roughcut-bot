@@ -17,8 +17,12 @@ try:
     def download_models():
         from faster_whisper import WhisperModel
         from kiwipiepy import Kiwi
-        print("[Build Time] Pre-downloading and baking Whisper Large-v3-Turbo into Docker image...")
-        WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
+        print("[Build Time] Pre-downloading and baking Korean Whisper-Turbo into Docker image...")
+        try:
+            WhisperModel("deepdml/faster-whisper-large-v3-turbo-ct2", device="cpu", compute_type="int8")
+        except Exception as e:
+            print(f"[Build Warning] Falling back to standard large-v3-turbo: {e}")
+            WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
         print("[Build Time] Pre-initializing Kiwi Korean morphological analyzer...")
         Kiwi(num_workers=1)
         print("[Build Time] All AI models baked successfully!")
@@ -28,6 +32,8 @@ try:
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("ffmpeg", "git")
         .pip_install(
+            "torch>=2.1.0",
+            "torchaudio>=2.1.0",
             "faster-whisper>=1.0.0",
             "kiwipiepy>=0.18.0",
             "librosa>=0.10.0",

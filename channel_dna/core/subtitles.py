@@ -119,41 +119,30 @@ class SubtitleEngine:
         if self._model is None:
             if progress_cb:
                 progress_cb(
-                    "SubtitleInit", 0.88, "Whisper Large-v3-Turbo 고성능 전사 엔진 로드 중..."
+                    "SubtitleInit", 0.88, "Whisper Large-v3-Turbo 고성능 한국어 전사 엔진 로드 중..."
                 )
-            try:
-                from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel
+            safe_threads = 8
 
-                # Anti-Overload CPU allocation
-                safe_threads = 8
-
-                self._model = WhisperModel(
-                    self.model_size,
-                    device=self.device,
-                    compute_type=self.compute_type,
-                    cpu_threads=safe_threads,
-                    num_workers=1,
-                )
-            except Exception as e:
-                _logger.warning("Large-v3-turbo load failed (%s), falling back to medium...", e)
+            candidate_models = [
+                self.model_size,
+                "deepdml/faster-whisper-large-v3-turbo-ct2",
+                "large-v3-turbo",
+                "small",
+            ]
+            for m_name in candidate_models:
                 try:
-                    from faster_whisper import WhisperModel
                     self._model = WhisperModel(
-                        "medium",
+                        m_name,
                         device=self.device,
-                        compute_type="int8",
-                        cpu_threads=8,
+                        compute_type=self.compute_type,
+                        cpu_threads=safe_threads,
                         num_workers=1,
                     )
-                except Exception:
-                    from faster_whisper import WhisperModel
-                    self._model = WhisperModel(
-                        "small",
-                        device=self.device,
-                        compute_type="int8",
-                        cpu_threads=8,
-                        num_workers=1,
-                    )
+                    break
+                except Exception as e:
+                    _logger.warning("Model load for %s failed (%s), trying next fallback...", m_name, e)
+
         return self._model
 
     def _get_batched_model(self, progress_cb=None):

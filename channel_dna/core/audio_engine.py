@@ -86,6 +86,21 @@ def _numba_sliding_rms_tension(
 def fast_sliding_rms_tension(
     samples: np.ndarray, window_len: int, hop_len: int
 ) -> tuple[np.ndarray, np.ndarray]:
+    try:
+        import torch
+
+        if torch.cuda.is_available() and len(samples) > window_len * 4:
+            t_audio = torch.from_numpy(samples).cuda().unsqueeze(0).unsqueeze(0)
+            squared = t_audio.pow(2)
+            kernel = torch.ones(1, 1, window_len, dtype=torch.float32, device="cuda") / float(window_len)
+            conv_rms = torch.sqrt(torch.nn.functional.conv1d(squared, kernel, stride=hop_len).squeeze(0).squeeze(0))
+            tensions = conv_rms.cpu().numpy()
+            n_frames = len(tensions)
+            times = (np.arange(n_frames, dtype=np.float32) * hop_len + window_len * 0.5) / 16000.0
+            return times, tensions
+    except Exception:
+        pass
+
     if _HAS_RUST_NATIVE:
         try:
             return channel_dna_native.fast_sliding_rms_tension_rs(
