@@ -103,62 +103,9 @@ async def on_ready():
 # =============================================================================
 
 
-@bot.tree.command(
-    name="암호발급",
-    description="[관리자] 스트리머용 1회용 인증 암호를 발급하고 모니터링 대기열에 등록합니다.",
-)
-@app_commands.describe(
-    스트리머명="등록할 스트리머 이름 (예: 양망두)",
-    치지직주소="치지직 채널 링크 또는 32자리 채널 ID",
-    적용dna="적용할 DNA 스타일 이름 (비워두면 본인 스타일 적용)",
-)
-async def cmd_issue_passcode(
-    interaction: discord.Interaction,
-    스트리머명: str,
-    치지직주소: str,
-    적용dna: str = "",
-):
-    # Admin Permission Check
-    if config.ADMIN_USER_ID != 0 and interaction.user.id != config.ADMIN_USER_ID:
-        await interaction.response.send_message(
-            "❌ 관리자만 실행할 수 있는 명령어입니다.", ephemeral=True
-        )
-        return
-
-    ch_id = extract_chzzk_channel_id(치지직주소)
-    if not ch_id or len(ch_id) < 10:
-        await interaction.response.send_message(
-            "❌ 올바른 치지직 채널 주소 또는 32자리 채널 ID를 입력해 주세요.",
-            ephemeral=True,
-        )
-        return
-
-    dna_prof = 적용dna.strip() if 적용dna else 스트리머명.strip()
-    passcode = generate_secure_passcode(스트리머명)
-    db.create_passcode_binding(
-        channel_id=ch_id,
-        streamer_name=스트리머명,
-        passcode=passcode,
-        target_dna_profile=dna_prof,
-    )
-
-    card_text = f"""[1회용 암호 발급 완료]
-
-- 스트리머: {스트리머명}
-- 적용 DNA: {dna_prof} 스타일
-- 채널 ID: {ch_id}
-- 인증 암호: `{passcode}`
-
-[전달용 안내문]
-```text
-안녕하세요. 치지직 방송 종료 시 가편집 타임라인과 자막을 자동 전송하는 봇입니다.
-
-1. 봇 초대 링크를 통해 봇과의 1:1 대화방을 엽니다.
-2. 대화창에 아래 명령어를 입력하여 등록을 완료해 주세요.
-👉 /인증 암호:{passcode}
-```
-"""
-    await interaction.response.send_message(card_text, ephemeral=True)
+# =============================================================================
+# Admin Slash Commands (Local GUI is primary, Status/Unbind only)
+# =============================================================================
 
 
 @bot.tree.command(
@@ -483,6 +430,22 @@ async def execute_vod_pipeline_and_deliver(
 # =============================================================================
 
 
+# Daily Rate Limiting Tracker (Max 5 requests per user per day)
+import datetime
+_daily_user_requests: dict[tuple[int, str], int] = {}
+
+
+def _check_and_increment_daily_rate_limit(user_id: int, max_limit: int = 5) -> bool:
+    """Checks and increments user's daily request count. Returns False if limit exceeded."""
+    today_str = datetime.date.today().isoformat()
+    key = (user_id, today_str)
+    current_count = _daily_user_requests.get(key, 0)
+    if current_count >= max_limit:
+        return False
+    _daily_user_requests[key] = current_count + 1
+    return True
+
+
 @bot.tree.command(
     name="인증",
     description="전달받은 1회용 암호로 채널 등록을 완료합니다.",
@@ -490,19 +453,24 @@ async def execute_vod_pipeline_and_deliver(
 @app_commands.describe(암호="전달받은 1회용 인증 암호 (예: YMDU-8492)")
 async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
     user_id = interaction.user.id
-    welcome_notice = """[등록 완료 안내]
+    welcome_notice = """[서비스 등록 완료]
 
-치지직 채널 등록이 정상적으로 완료되었습니다.
+계정 인증이 정상적으로 완료되었습니다.
 
-[서비스 이용 안내]
-• 자동 생성: 치지직 방송 종료 시 가편집 타임라인 및 자막 자동 전달
-• 수동 분석: 지난 방송 링크(URL)를 이 대화창에 입력 시 즉시 생성
+[이용 방법]
+- 자동 알림: 생방송 종료 시 방종을 자동 감지하여 본 대화창으로 가편집 시작 안내가 전송됩니다.
+- 수동 분석: 지난 방송의 경우 치지직 다시보기 URL(또는 영상 번호)을 본 대화창에 전송하면 즉시 분석됩니다.
+- 모드 선택: 솔로 모드 / 합방 모드 중 원하는 편집 스타일을 선택합니다.
+- 결과 수령: 작업 완료 시 결과물 패키지가 본 대화창으로 자동 전송됩니다.
 
-[제공 파일 안내]
-• Solo (XML): 개인 방송 기준 가편집 타임라인 파일
-• Collab (XML): 합방 및 다인 방송 기준 가편집 타임라인 파일
-• 자막 (SRT): 음성 인식 기반 초벌 자막 파일
-• 가이드 (TXT): 편집기 불러오기 및 타임라인 연결 가이드
+[제공 파일]
+- Final Cut Pro / Premiere Pro 가편집 타임라인 (XML)
+- 가편집 타임라인 동기화 자막 (SRT)
+- 편집기 연동 가이드 (TXT)
+
+[안내 사항]
+- 등록된 채널의 영상에 한해 분석이 지원됩니다.
+- 입력된 방송 데이터는 작업 완료 즉시 안전하게 파기됩니다.
 """
 
     # Check if already bound
@@ -514,7 +482,7 @@ async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
     res = db.verify_and_bind_passcode(passcode=암호, discord_user_id=user_id)
     if not res:
         await interaction.response.send_message(
-            "❌ 유효하지 않거나 이미 사용된 암호입니다. 관리자에게 확인해 주세요.",
+            "[인증 실패]\n유효하지 않거나 이미 사용된 인증 암호입니다. 관리자에게 확인해 주시기 바랍니다.",
             ephemeral=True,
         )
         return
@@ -533,7 +501,15 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
 
     if not binding:
         await interaction.response.send_message(
-            "❌ 등록된 채널이 없습니다. 먼저 `/인증 [암호]` 명령어로 등록을 완료해 주세요.",
+            "[접근 권한 제한]\n사전 등록된 계정 전용 서비스입니다. 관리자에게 1회용 인증 암호를 발급받은 후 '/인증 [암호]' 명령어를 진행해 주시기 바랍니다.",
+            ephemeral=True,
+        )
+        return
+
+    # Rate Limiting check
+    if not _check_and_increment_daily_rate_limit(user_id, max_limit=5):
+        await interaction.response.send_message(
+            "[일일 요청 한도 초과]\n금일 요청 가능한 분석 횟수(최대 5회)를 초과하였습니다. 익일 다시 이용해 주시기 바랍니다.",
             ephemeral=True,
         )
         return
@@ -542,7 +518,7 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
     v_no = extract_chzzk_video_no(다시보기링크)
     if not v_no:
         await interaction.response.send_message(
-            "❌ 올바른 치지직 다시보기 영상 링크 또는 번호를 입력해 주세요.",
+            "[입력 오류]\n올바른 치지직 다시보기 영상 링크 또는 번호를 입력해 주세요.",
             ephemeral=True,
         )
         return
@@ -550,7 +526,7 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
     meta = fetch_chzzk_video_meta(v_no)
     if not meta:
         await interaction.response.send_message(
-            "❌ 해당 치지직 다시보기 영상 정보를 불러올 수 없습니다. 링크를 확인해 주세요.",
+            "[분석 대상 오류]\n해당 치지직 다시보기 영상 정보를 불러올 수 없습니다. 링크를 확인해 주세요.",
             ephemeral=True,
         )
         return
@@ -559,11 +535,8 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
     bound_ch_id = binding.get("channel_id", "")
 
     if video_ch_id and bound_ch_id and video_ch_id != bound_ch_id:
-        req_owner = meta.get("channel_name") or "타 채널"
         await interaction.response.send_message(
-            f"❌ 등록된 본인의 치지직 채널 영상만 분석할 수 있습니다.\n"
-            f"• 등록 채널: {binding.get('streamer_name')} (`{bound_ch_id[:8]}...`)\n"
-            f"• 요청 영상 소유자: {req_owner}",
+            "[분석 대상 오류]\n등록된 채널의 다시보기 영상만 분석 가능합니다. 영상 링크를 다시 확인해 주시기 바랍니다.",
             ephemeral=True,
         )
         return
@@ -579,11 +552,11 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
         discord_user_id=user_id,
     )
     notice_text = (
-        "🎬 **다시보기 링크가 접수되었습니다.**\n"
-        "진행할 가편집 스타일을 선택해 주세요.\n\n"
-        f"🔗 **영상 링크**: `{v_url}`\n\n"
-        "• 🎙️ **솔로 모드**: 개인 방송 텐션 및 호흡 기준 가편집\n"
-        "• 👥 **합방 모드**: 디스코드 및 다인 방송 텐션 기준 가편집"
+        f"[다시보기 분석 요청 접수]\n"
+        f"영상 링크: `{v_url}`\n\n"
+        "진행할 가편집 스타일을 선택해 주시기 바랍니다.\n"
+        "• 솔로 모드: 개인 방송 텐션 및 호흡 기준 가편집\n"
+        "• 합방 모드: 디스코드 및 다인 방송 텐션 기준 가편집"
     )
     await interaction.response.send_message(notice_text, view=view, ephemeral=False)
 
@@ -622,7 +595,7 @@ async def cmd_clear_messages(interaction: discord.Interaction, 개수: int = 30)
             pass
 
     await interaction.followup.send(
-        f"🧹 봇이 보낸 메시지 **{deleted_count}개**를 삭제하여 대화창을 깨끗하게 정리했습니다.",
+        f"대화창 정리 완료: 이전 메시지 {deleted_count}개가 삭제되었습니다.",
         ephemeral=True,
     )
 
@@ -659,30 +632,34 @@ async def on_message(message: discord.Message):
             binding = db.get_binding_by_discord_user_id(user_id)
             if not binding:
                 await message.channel.send(
-                    "❌ 등록된 채널이 없습니다. 먼저 `/인증 [암호]` 명령어로 채널을 등록해 주세요."
+                    "[접근 권한 제한]\n사전 등록된 계정 전용 서비스입니다. 관리자에게 1회용 인증 암호를 발급받은 후 '/인증 [암호]' 명령어를 진행해 주시기 바랍니다."
+                )
+                return
+
+            # Rate Limiting check
+            if not _check_and_increment_daily_rate_limit(user_id, max_limit=5):
+                await message.channel.send(
+                    "[일일 요청 한도 초과]\n금일 요청 가능한 분석 횟수(최대 5회)를 초과하였습니다. 익일 다시 이용해 주시기 바랍니다."
                 )
                 return
 
             # Video ownership verification
             v_no = extract_chzzk_video_no(clean_content)
             if not v_no:
-                await message.channel.send("❌ 올바른 치지직 다시보기 영상 링크를 입력해 주세요.")
+                await message.channel.send("[입력 오류]\n올바른 치지직 다시보기 영상 링크를 입력해 주시기 바랍니다.")
                 return
 
             meta = fetch_chzzk_video_meta(v_no)
             if not meta:
-                await message.channel.send("❌ 해당 치지직 다시보기 영상 정보를 불러올 수 없습니다.")
+                await message.channel.send("[분석 대상 오류]\n해당 치지직 다시보기 영상 정보를 불러올 수 없습니다.")
                 return
 
             video_ch_id = meta.get("channel_id", "")
             bound_ch_id = binding.get("channel_id", "")
 
             if video_ch_id and bound_ch_id and video_ch_id != bound_ch_id:
-                req_owner = meta.get("channel_name") or "타 채널"
                 await message.channel.send(
-                    f"❌ 등록된 본인의 치지직 채널 영상만 분석할 수 있습니다.\n"
-                    f"• 등록 채널: {binding.get('streamer_name')} (`{bound_ch_id[:8]}...`)\n"
-                    f"• 요청 영상 소유자: {req_owner}"
+                    "[분석 대상 오류]\n등록된 채널의 다시보기 영상만 분석 가능합니다. 영상 링크를 다시 확인해 주시기 바랍니다."
                 )
                 return
 
@@ -697,11 +674,11 @@ async def on_message(message: discord.Message):
                 discord_user_id=user_id,
             )
             notice_text = (
-                "🎬 **다시보기 링크가 접수되었습니다.**\n"
-                "진행할 가편집 스타일을 선택해 주세요.\n\n"
-                f"🔗 **영상 링크**: `{v_url}`\n\n"
-                "• 🎙️ **솔로 모드**: 개인 방송 텐션 및 호흡 기준 가편집\n"
-                "• 👥 **합방 모드**: 디스코드 및 다인 방송 텐션 기준 가편집"
+                f"[다시보기 분석 요청 접수]\n"
+                f"영상 링크: `{v_url}`\n\n"
+                "진행할 가편집 스타일을 선택해 주시기 바랍니다.\n"
+                "• 솔로 모드: 개인 방송 텐션 및 호흡 기준 가편집\n"
+                "• 합방 모드: 디스코드 및 다인 방송 텐션 기준 가편집"
             )
             await message.channel.send(content=notice_text, view=view)
 
@@ -755,13 +732,13 @@ async def chzzk_watcher_loop():
                     discord_user_id=discord_user_id,
                 )
                 notice_text = (
-                    "🔔 **방송 종료가 감지되었습니다.**\n"
-                    "다시보기 가편집을 진행하시려면 아래 버튼 중 하나를 선택해 주세요.\n\n"
-                    f"🔗 **영상 링크**: `{v_url}`\n\n"
-                    "• 🎙️ **솔로 모드**: 개인 방송 텐션 및 호흡 기준 가편집 타임라인\n"
-                    "• 👥 **합방 모드**: 디스코드 및 다인 방송 텐션 기준 가편집 타임라인\n\n"
-                    "• ⏱️ *버튼을 누르지 않으시면 작업이 진행되지 않습니다.*\n"
-                    "• 💡 *실수로 잘못 누르셨다면 위 영상 링크를 다시 보내주시면 언제든 재선택하실 수 있습니다.*"
+                    f"[생방송 종료 감지 알림]\n"
+                    f"방송 제목: {v_title}\n"
+                    f"영상 링크: `{v_url}`\n\n"
+                    "가편집을 진행하시려면 아래 편집 모드 버튼을 선택해 주시기 바랍니다.\n"
+                    "• 솔로 모드: 개인 방송 텐션 및 호흡 기준 가편집\n"
+                    "• 합방 모드: 디스코드 및 다인 방송 텐션 기준 가편집\n\n"
+                    "※ 버튼을 선택하지 않으시면 분석이 진행되지 않습니다."
                 )
                 await user.send(content=notice_text, view=view)
                 db.update_last_processed_video_no(ch_id, v_no)
