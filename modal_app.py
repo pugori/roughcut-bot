@@ -38,6 +38,7 @@ try:
             "torchaudio>=2.1.0",
             "nvidia-cublas-cu12",
             "nvidia-cudnn-cu12",
+            "aiohttp>=3.9.0",
             "faster-whisper>=1.0.0",
             "kiwipiepy>=0.18.0",
             "librosa>=0.10.0",

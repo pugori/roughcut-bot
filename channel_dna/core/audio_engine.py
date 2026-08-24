@@ -407,6 +407,7 @@ class AudioEngine:
             )
             out, _ = p.communicate(input=raw_fmp4)
             if out:
+                print(f"[2/5] 24-Worker Parallel HLS Download & Decode complete ({len(raw_fmp4) / (1024*1024):.1f}MB in memory)!", flush=True)
                 return np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32768.0
         except Exception as e:
             _logger.debug("Parallel HLS stream extraction failed: %s, falling back to standard stream", e)
