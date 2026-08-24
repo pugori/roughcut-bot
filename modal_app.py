@@ -14,6 +14,15 @@ try:
 
     app = modal.App("channel-dna-cloud")
 
+    def download_models():
+        from faster_whisper import WhisperModel
+        from kiwipiepy import Kiwi
+        print("[Build Time] Pre-downloading and baking Whisper Large-v3-Turbo into Docker image...")
+        WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
+        print("[Build Time] Pre-initializing Kiwi Korean morphological analyzer...")
+        Kiwi(num_workers=1)
+        print("[Build Time] All AI models baked successfully!")
+
     # Define high-speed Cloud container environment with FFmpeg & CUDA
     image = (
         modal.Image.debian_slim(python_version="3.11")
@@ -30,6 +39,7 @@ try:
             "numpy>=1.24.0",
             "tqdm>=4.66.0",
         )
+        .run_function(download_models)
         .add_local_python_source("channel_dna")
     )
 except ImportError:
