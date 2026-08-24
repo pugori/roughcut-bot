@@ -241,28 +241,58 @@ async def execute_vod_pipeline_and_deliver(
 
     print(f"[Pipeline Start] {streamer_name} ({vod_url_or_no}) -> DNA: {target_dna}")
 
+    status_msg = None
+    stop_heartbeat = asyncio.Event()
+
+    async def _typing_heartbeat():
+        while not stop_heartbeat.is_set():
+            try:
+                if status_channel:
+                    async with status_channel.typing():
+                        await asyncio.sleep(8)
+                else:
+                    await asyncio.sleep(8)
+            except Exception:
+                await asyncio.sleep(8)
+
     if status_channel:
         try:
-            await status_channel.send("⏳ 요청하신 다시보기 분석을 시작합니다. (약 2~3분 소요)")
+            status_msg = await status_channel.send(
+                "⏳ **다시보기 분석을 시작합니다.**\n"
+                "• 방송 분량에 따라 수 분 소요될 수 있으며, 완료되면 이곳으로 4종 편집 패키지를 보내드립니다.\n"
+                "• ⚙️ *진행 상태: 음성 수집 및 AI 하이라이트 연산 중...*"
+            )
         except Exception:
             pass
 
+    heartbeat_task = asyncio.create_task(_typing_heartbeat())
+
     # Run Pipeline (Modal Cloud or Local Fallback)
-    if config.USE_MODAL_CLOUD:
-        try:
-            import modal
-            remote_fn = modal.Function.from_name(
-                "channel-dna-cloud", "process_chzzk_vod_cloud"
-            )
-            result = await asyncio.to_thread(
-                remote_fn.remote,
-                vod_url_or_no,
-                streamer_name,
-                solo_dict,
-                collab_dict,
-            )
-        except Exception as cloud_err:
-            print(f"[Modal Cloud Failed, fallback to local] {cloud_err}")
+    try:
+        if config.USE_MODAL_CLOUD:
+            try:
+                import modal
+                remote_fn = modal.Function.from_name(
+                    "channel-dna-cloud", "process_chzzk_vod_cloud"
+                )
+                result = await asyncio.to_thread(
+                    remote_fn.remote,
+                    vod_url_or_no,
+                    streamer_name,
+                    solo_dict,
+                    collab_dict,
+                )
+            except Exception as cloud_err:
+                print(f"[Modal Cloud Failed, fallback to local] {cloud_err}")
+                from modal_app import process_chzzk_vod_local
+                result = await asyncio.to_thread(
+                    process_chzzk_vod_local,
+                    vod_url_or_no,
+                    streamer_name,
+                    solo_dict,
+                    collab_dict,
+                )
+        else:
             from modal_app import process_chzzk_vod_local
             result = await asyncio.to_thread(
                 process_chzzk_vod_local,
@@ -271,24 +301,27 @@ async def execute_vod_pipeline_and_deliver(
                 solo_dict,
                 collab_dict,
             )
-    else:
-        from modal_app import process_chzzk_vod_local
-        result = await asyncio.to_thread(
-            process_chzzk_vod_local,
-            vod_url_or_no,
-            streamer_name,
-            solo_dict,
-            collab_dict,
-        )
+    finally:
+        stop_heartbeat.set()
+        heartbeat_task.cancel()
 
     if not result or not result.get("success"):
         print(f"[Pipeline Execution Failed for {vod_url_or_no}]")
-        if status_channel:
+        if status_msg:
             try:
-                await status_channel.send("❌ 다시보기 분석 중 오류가 발생했습니다. 다시 시도해 주세요.")
+                await status_msg.edit(content="❌ **다시보기 분석 중 오류가 발생했습니다.** 다시 시도해 주세요.")
             except Exception:
                 pass
         return False
+
+    if status_msg:
+        try:
+            await status_msg.edit(
+                content="✅ **다시보기 분석 및 AI 자막 생성이 완료되었습니다!**\n"
+                        "• 아래 4개 파일을 확인해 주세요."
+            )
+        except Exception:
+            pass
 
     b_title = result.get("broadcast_title", "치지직 다시보기")
     b_date = result.get("broadcast_date", "20260825")
