@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sliders, Sparkles, RefreshCw } from "lucide-react";
+import { Sliders, Sparkles, RefreshCw, Cloud } from "lucide-react";
 
 interface ChannelProfile {
   profile_id: string;
@@ -41,6 +41,7 @@ export const ProfilesTab = ({
   onRefresh,
   addLog,
 }: ProfilesTabProps) => {
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [soloForm, setSoloForm] = useState({
     asl: "5.08",
     rms: "0.95",
@@ -82,6 +83,46 @@ export const ProfilesTab = ({
     }
   }, [soloProfile, collabProfile]);
 
+  const handleSyncToCloud = async () => {
+    if (!soloProfile && !collabProfile) {
+      addLog("클라우드에 업로드할 프로필이 없습니다.", "WARN");
+      return;
+    }
+    const CLOUD_BOT_URL = "https://roughcut-bot.onrender.com";
+    const ADMIN_SECRET = "channeldna-secret-admin-key-2026";
+    setIsSyncing(true);
+
+    try {
+      addLog(`☁️ [${selectedStreamer}] DNA 프로필을 클라우드 서버로 업로드 중...`, "INFO");
+
+      if (soloProfile) {
+        await fetch(`${CLOUD_BOT_URL}/api/sync_profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            secret_key: ADMIN_SECRET,
+            profile: soloProfile,
+          }),
+        });
+      }
+      if (collabProfile) {
+        await fetch(`${CLOUD_BOT_URL}/api/sync_profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            secret_key: ADMIN_SECRET,
+            profile: collabProfile,
+          }),
+        });
+      }
+      addLog(`🎉 [${selectedStreamer}] Solo/Collab 2-Track DNA가 클라우드로 성공적으로 업로드되었습니다! (로컬 PC를 꺼도 24시간 가동)`, "SUCCESS");
+    } catch (e: any) {
+      addLog(`클라우드 업로드 실패: ${e}`, "ERROR");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3 h-full">
       {/* Header */}
@@ -109,6 +150,13 @@ export const ProfilesTab = ({
           </select>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleSyncToCloud}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded bg-[#00E676] hover:bg-[#00C853] text-slate-950 shadow-md transition-all active:scale-95 disabled:opacity-50"
+          >
+            <Cloud className="w-3.5 h-3.5" /> {isSyncing ? "동기화 중..." : "☁️ 클라우드 업로드"}
+          </button>
           <button
             onClick={onRecalculateDna}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded bg-[#0288D1] hover:bg-[#0277BD] text-white shadow-md transition-all active:scale-95"

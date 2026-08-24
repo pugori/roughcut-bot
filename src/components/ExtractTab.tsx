@@ -71,6 +71,30 @@ export const ExtractTab = ({
       setProgress({ pct: 100, msg: "채널 일괄 수집 및 DNA 학습 완료" });
       addLog(`🎉 [채널 일괄 수집 완료] '${sName}' 대표 영상 총 ${updatedVideos.length}편 SQLite DB 적재 완료!`, "SUCCESS");
       onRefresh();
+
+      // Auto Cloud Sync for newly extracted DNA
+      try {
+        const [solo, collab] = await invoke<[any, any]>("get_two_track_profiles", { streamerName: sName });
+        const CLOUD_BOT_URL = "https://roughcut-bot.onrender.com";
+        const ADMIN_SECRET = "channeldna-secret-admin-key-2026";
+        if (solo) {
+          await fetch(`${CLOUD_BOT_URL}/api/sync_profile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ secret_key: ADMIN_SECRET, profile: solo }),
+          });
+        }
+        if (collab) {
+          await fetch(`${CLOUD_BOT_URL}/api/sync_profile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ secret_key: ADMIN_SECRET, profile: collab }),
+          });
+        }
+        addLog(`☁️ '${sName}' DNA 프로필이 24시간 클라우드 봇으로 자동 업로드되었습니다! (로컬 PC를 종료해도 정상 가동)`, "SUCCESS");
+      } catch (cloudErr) {
+        addLog(`클라우드 자동 업로드 알림: ${cloudErr}`, "INFO");
+      }
     } catch (e) {
       if (ticker) clearInterval(ticker);
       addLog(`수집 실패: ${e}`, "ERROR");

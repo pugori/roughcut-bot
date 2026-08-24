@@ -75,6 +75,9 @@ export const BotTab: React.FC<BotTabProps> = ({
     }
   };
 
+  const CLOUD_BOT_URL = "https://roughcut-bot.onrender.com";
+  const ADMIN_SECRET = "channeldna-secret-admin-key-2026";
+
   const handleIssuePasscode = async () => {
     if (!selectedStreamer) {
       addLog("스트리머를 먼저 선택해 주세요.", "WARN");
@@ -103,6 +106,27 @@ export const BotTab: React.FC<BotTabProps> = ({
 인증 완료 후 치지직 다시보기 링크(URL)를 전송하시면 분석이 진행됩니다.`;
       setIssuedCard(copyText);
       addLog(`✓ [${selectedStreamer}] 1회용 암호 발급 완료 (적용 DNA: ${selectedDna}): ${passcode}`, "SUCCESS");
+
+      // Push to 24/7 Cloud Bot so local PC doesn't need to stay on
+      try {
+        const cloudResp = await fetch(`${CLOUD_BOT_URL}/api/issue_passcode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            secret_key: ADMIN_SECRET,
+            streamer_name: selectedStreamer,
+            channel_id: targetChannel,
+            target_dna_profile: selectedDna,
+            passcode: passcode,
+          }),
+        });
+        if (cloudResp.ok) {
+          addLog(`☁️ 클라우드 봇에 암호(${passcode}) 동기화 완료! (로컬 PC를 꺼도 24시간 자동 가동)`, "SUCCESS");
+        }
+      } catch (cloudErr) {
+        addLog(`⚠️ 클라우드 동기화 안내: ${cloudErr}`, "WARN");
+      }
+
       await loadBindings();
     } catch (e: any) {
       addLog(`암호 발급 오류: ${e}`, "ERROR");
@@ -114,7 +138,22 @@ export const BotTab: React.FC<BotTabProps> = ({
     try {
       const res = await invoke<boolean>("unbind_streamer", { streamerName: nameOrChannel });
       if (res) {
-        addLog(`✓ [${nameOrChannel}] 모니터링 해지 완료`, "SUCCESS");
+        addLog(`✓ [${nameOrChannel}] 로컬 모니터링 해지 완료`, "SUCCESS");
+
+        try {
+          await fetch(`${CLOUD_BOT_URL}/api/unbind_streamer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              secret_key: ADMIN_SECRET,
+              streamer_name: nameOrChannel,
+            }),
+          });
+          addLog(`☁️ [${nameOrChannel}] 클라우드 봇 바인딩 해지 완료`, "SUCCESS");
+        } catch {
+          // ignore
+        }
+
         await loadBindings();
       }
     } catch (e: any) {

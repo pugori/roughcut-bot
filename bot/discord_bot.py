@@ -61,21 +61,103 @@ def generate_secure_passcode(prefix: str = "CDNA") -> str:
 
 from aiohttp import web
 
+ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "channeldna-secret-admin-key-2026")
+
 
 async def handle_health(request):
-    return web.Response(text="RoughCut Discord Bot 24/7 is Live!")
+    return web.Response(text="RoughCut Discord Bot 24/7 is Live!", headers={"Access-Control-Allow-Origin": "*"})
+
+
+async def handle_options(request):
+    return web.Response(
+        status=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+    )
+
+
+async def handle_sync_profile(request):
+    try:
+        data = await request.json()
+        secret = data.get("secret_key", "")
+        if secret != ADMIN_SECRET_KEY:
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+        profile_data = data.get("profile")
+        if not profile_data:
+            return web.json_response({"success": False, "error": "Missing profile data"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        from channel_dna.models.channel_profile import ChannelProfile
+        prof = ChannelProfile.from_dict(profile_data)
+        db.save_profile(prof)
+        print(f"[Cloud Profile Synced] Saved '{prof.channel_name}' ({prof.profile_type}) to Render DB.")
+        return web.json_response({"success": True, "profile_id": prof.profile_id}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
+async def handle_issue_passcode(request):
+    try:
+        data = await request.json()
+        secret = data.get("secret_key", "")
+        if secret != ADMIN_SECRET_KEY:
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+        ch_id = data.get("channel_id")
+        st_name = data.get("streamer_name")
+        passcode = data.get("passcode")
+        target_dna = data.get("target_dna_profile") or st_name
+
+        if not ch_id or not st_name or not passcode:
+            return web.json_response({"success": False, "error": "Missing parameters"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        db.create_passcode_binding(
+            channel_id=ch_id,
+            streamer_name=st_name,
+            passcode=passcode,
+            target_dna_profile=target_dna,
+        )
+        print(f"[Cloud Binding Synced] Registered '{st_name}' ({ch_id}, passcode: {passcode}) on Render DB.")
+        return web.json_response({"success": True, "passcode": passcode}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
+async def handle_unbind_streamer(request):
+    try:
+        data = await request.json()
+        secret = data.get("secret_key", "")
+        if secret != ADMIN_SECRET_KEY:
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+        target = data.get("streamer_name") or data.get("channel_id")
+        if not target:
+            return web.json_response({"success": False, "error": "Missing target"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        res = db.unbind_streamer(target)
+        return web.json_response({"success": res}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
 async def start_health_server():
     port = int(os.environ.get("PORT", 10000))
     app = web.Application()
+    app.router.add_route("OPTIONS", "/{tail:.*}", handle_options)
     app.router.add_get("/", handle_health)
     app.router.add_get("/health", handle_health)
+    app.router.add_post("/api/sync_profile", handle_sync_profile)
+    app.router.add_post("/api/issue_passcode", handle_issue_passcode)
+    app.router.add_post("/api/unbind_streamer", handle_unbind_streamer)
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"[OK] Health check server listening on port {port}")
+    print(f"[OK] Health check and Cloud Sync API server listening on port {port}")
 
 
 # =============================================================================
