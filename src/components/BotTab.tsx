@@ -90,7 +90,17 @@ export const BotTab: React.FC<BotTabProps> = ({
         targetDnaProfile: selectedDna,
       });
 
-      const copyText = `안녕하세요. 치지직 방송 종료 시 가편집 타임라인과 자막을 자동 전송하는 봇입니다.\n\n1. 봇 초대 링크를 통해 1:1 대화방을 엽니다.\n2. 대화창에 아래 명령어를 입력하여 등록을 완료해 주세요.\n👉 /인증 암호:${passcode}`;
+      const copyText = `[치지직 VOD AI 가편집 서비스 이용 안내]
+
+치지직 다시보기 영상을 기반으로 가편집 타임라인(XML) 및 자막(SRT)을 자동 생성하는 전용 서비스입니다.
+사전 등록된 계정에 한해 1회 인증 후 이용 가능합니다.
+
+1. 봇 1:1 대화방 접속: (봇 초대 링크)
+2. 대화창에 인증 명령어 입력:
+   /인증 암호:${passcode}
+
+※ 봇과의 1:1 대화방(DM)이 열려 있어야 가편집 결과물 파일 수신이 가능합니다.
+인증 완료 후 치지직 다시보기 링크(URL)를 전송하시면 분석이 진행됩니다.`;
       setIssuedCard(copyText);
       addLog(`✓ [${selectedStreamer}] 1회용 암호 발급 완료 (적용 DNA: ${selectedDna}): ${passcode}`, "SUCCESS");
       await loadBindings();
