@@ -459,7 +459,7 @@ async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
 
 [이용 방법]
 - 자동 알림: 생방송 종료 시 방종을 자동 감지하여 본 대화창으로 가편집 시작 안내가 전송됩니다.
-- 수동 분석: 지난 방송의 경우 치지직 다시보기 URL(또는 영상 번호)을 본 대화창에 전송하면 즉시 분석됩니다.
+- 수동 분석: 지난 방송의 경우 치지직 다시보기 링크(URL)를 본 대화창에 전송하면 즉시 분석됩니다.
 - 모드 선택: 솔로 모드 / 합방 모드 중 원하는 편집 스타일을 선택합니다.
 - 결과 수령: 작업 완료 시 결과물 패키지가 본 대화창으로 자동 전송됩니다.
 
@@ -493,7 +493,7 @@ async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
     name="분석",
     description="치지직 다시보기 링크를 수동으로 입력하여 가편집 파일과 자막을 즉시 생성합니다.",
 )
-@app_commands.describe(다시보기링크="치지직 다시보기 링크 또는 영상 번호 (예: https://chzzk.naver.com/video/1049281)")
+@app_commands.describe(다시보기링크="치지직 다시보기 링크 (예: https://chzzk.naver.com/video/1049281)")
 async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링크: str):
     user_id = interaction.user.id
     binding = db.get_binding_by_discord_user_id(user_id)
@@ -517,7 +517,7 @@ async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링�
     v_no = extract_chzzk_video_no(다시보기링크)
     if not v_no:
         await interaction.response.send_message(
-            "[입력 오류]\n올바른 치지직 다시보기 영상 링크 또는 번호를 입력해 주세요.",
+            "[입력 오류]\n올바른 치지직 다시보기 영상 링크(URL)를 입력해 주시기 바랍니다.",
             ephemeral=True,
         )
         return
