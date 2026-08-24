@@ -253,7 +253,8 @@ class SubtitleEngine:
                     repetition_penalty=1.15,
                     compression_ratio_threshold=2.4,
                     no_speech_threshold=0.60,
-                    vad_filter=False,  # Already silence-trimmed by preprocessor
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=100, speech_pad_ms=150),
                     word_timestamps=True,
                 )
                 if hasattr(model, "model"):  # BatchedInferencePipeline wrapper
