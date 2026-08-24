@@ -146,7 +146,6 @@ def _execute_pipeline_core(
     selected_mode: str = "solo",
 ) -> dict[str, Any]:
     """Core execution logic shared between Cloud Modal and Local Fallback."""
-    from channel_dna.core.guide_generator import GuideGenerator
     from channel_dna.core.pipeline import PipelineFacade
     from channel_dna.core.utils import sanitize_filename
 
@@ -274,12 +273,6 @@ def _execute_pipeline_core(
                 facade.subtitle_engine.export_srt(rough_subs, str(srt_path))
                 srt_content = srt_path.read_text(encoding="utf-8") if srt_path.exists() else ""
 
-        # [5/5] Generate Guide Text for Discord integration
-        guide_content = GuideGenerator.generate_guide_text(
-            vod_title=broadcast_title,
-            vod_date=broadcast_date,
-            total_markers=len(target_markers),
-        )
         print("[5/5] Package successfully generated! Returning package to Discord bot.", flush=True)
 
         return {
@@ -292,7 +285,6 @@ def _execute_pipeline_core(
             "solo_xml_content": solo_xml_content,
             "collab_xml_content": collab_xml_content,
             "srt_content": srt_content,
-            "guide_txt_content": guide_content,
             "solo_marker_count": len(solo_markers),
             "collab_marker_count": len(collab_markers),
             "sub_count": len(subtitles),

@@ -466,7 +466,6 @@ async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
 [제공 파일]
 - Final Cut Pro / Premiere Pro 가편집 타임라인 (XML)
 - 가편집 타임라인 동기화 자막 (SRT)
-- 편집기 연동 가이드 (TXT)
 
 [안내 사항]
 - 등록된 채널의 영상에 한해 분석이 지원됩니다.
