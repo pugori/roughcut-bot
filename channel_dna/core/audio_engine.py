@@ -233,11 +233,22 @@ class AudioEngine:
     def _build_ffmpeg_cmd(
         self, url: str, max_duration_sec: float | None = None
     ) -> list:
-        cmd = [self.ffmpeg_cmd, "-v", "error", "-threads", "2"]
+        cmd = [self.ffmpeg_cmd, "-v", "error", "-threads", "4"]
         if url.startswith("http://") or url.startswith("https://"):
             headers = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://chzzk.naver.com/\r\n"
             if ".m3u8" in url:
-                cmd.extend(["-extension_picky", "0"])
+                cmd.extend(
+                    [
+                        "-extension_picky",
+                        "0",
+                        "-reconnect",
+                        "1",
+                        "-reconnect_streamed",
+                        "1",
+                        "-reconnect_delay_max",
+                        "5",
+                    ]
+                )
             cmd.extend(["-headers", headers])
 
         if max_duration_sec:
