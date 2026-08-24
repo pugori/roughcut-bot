@@ -61,6 +61,7 @@ def _execute_pipeline_core(
     selected_mode: str = "solo",
 ) -> dict[str, Any]:
     """Core execution logic shared between Cloud Modal and Local Fallback."""
+    import gc
     from channel_dna.core.chzzk_client import extract_chzzk_video_no, fetch_chzzk_video_meta
     from channel_dna.core.guide_generator import GuideGenerator
     from channel_dna.core.models import (
@@ -69,174 +70,190 @@ def _execute_pipeline_core(
         ChannelProfile,
     )
     from channel_dna.core.pipeline import PipelineFacade
+    from channel_dna.core.utils import sanitize_filename
 
     facade = PipelineFacade()
     target_streamer = streamer_name.strip() if streamer_name else "스트리머"
 
-    # 1. Fetch Metadata from Chzzk
-    broadcast_date = "20260824"
-    broadcast_title = "치지직 다시보기"
-    v_no = extract_chzzk_video_no(vod_url_or_no)
-    print(f"[1/5] Starting VOD Pipeline for {vod_url_or_no} (Target Streamer: {target_streamer}, Mode: {selected_mode})", flush=True)
-    if v_no:
-        meta = fetch_chzzk_video_meta(v_no)
-        if meta:
-            if meta.get("date_str"):
-                broadcast_date = meta["date_str"]
-            if meta.get("title"):
-                broadcast_title = meta["title"]
-            if not streamer_name and meta.get("channel_name"):
-                target_streamer = meta["channel_name"]
-            print(f"[1/5] Metadata loaded: {broadcast_date} - {broadcast_title}", flush=True)
-
-    # 2. Dynamic DNA Profile Resolution (Zero Hardcoding)
-    if solo_profile:
-        solo_p = ChannelProfile.from_dict(solo_profile)
-    else:
-        db_solo = facade.db.get_profile(f"{target_streamer}_Solo") or facade.db.get_profile(target_streamer)
-        if db_solo:
-            solo_p = db_solo
-        else:
-            solo_p = ChannelProfile.from_dict(PSYCHOLOGY_SOLO_PROFILE)
-            solo_p.channel_name = f"{target_streamer}_Solo"
-    solo_p.profile_type = "solo"
-
-    if collab_profile:
-        collab_p = ChannelProfile.from_dict(collab_profile)
-    else:
-        db_collab = facade.db.get_profile(f"{target_streamer}_Collab")
-        if db_collab:
-            collab_p = db_collab
-        else:
-            collab_p = ChannelProfile.from_dict(PSYCHOLOGY_COLLAB_PROFILE)
-            collab_p.channel_name = f"{target_streamer}_Collab"
-    collab_p.profile_type = "collab"
-
-    # 3. Audio Extraction & Fast Chat Caching (Single Download)
-    print(f"[2/5] Extracting audio stream once into memory (16kHz)...", flush=True)
-    audio_samples = facade.scanner.audio_engine.extract_audio_in_memory(vod_url_or_no)
-    facade.scanner.last_audio_samples = audio_samples
-
-    total_dur_sec = len(audio_samples) / 16000.0 if len(audio_samples) > 0 else 0.0
-    preloaded_chats = None
-    if v_no and total_dur_sec > 0:
-        try:
-            print(f"[2/5] Fetching live chat logs for video {v_no} ({total_dur_sec:.1f}s)...", flush=True)
-            preloaded_chats = facade.scanner.chat_engine.fetch_vod_chat_logs(v_no, total_dur_sec)
-            print(f"[2/5] Chat logs loaded: {len(preloaded_chats) if preloaded_chats else 0} entries.", flush=True)
-        except Exception as chat_err:
-            print(f"[Chat Fetch Notice] {chat_err}", flush=True)
-
-    solo_markers = []
-    collab_markers = []
-
-    if selected_mode in ("solo", "both"):
-        print(f"[2/5] Scanning audio tension curves & DTW matching for Solo...", flush=True)
-        solo_markers = facade.scanner.scan(
-            vod_url_or_no,
-            solo_p,
-            scan_mode="solo",
-            preloaded_audio=audio_samples,
-            preloaded_chats=preloaded_chats,
+    try:
+        # 1. Fetch Metadata from Chzzk
+        broadcast_date = "20260825"
+        broadcast_title = "치지직 다시보기"
+        v_no = extract_chzzk_video_no(vod_url_or_no)
+        print(
+            f"[1/5] Starting VOD Pipeline for {vod_url_or_no} "
+            f"(Target Streamer: {target_streamer}, Mode: {selected_mode})",
+            flush=True,
         )
-        print(f"[2/5] Solo scan complete: {len(solo_markers)} highlight markers identified.", flush=True)
+        if v_no:
+            meta = fetch_chzzk_video_meta(v_no)
+            if meta:
+                if meta.get("date_str"):
+                    broadcast_date = meta["date_str"]
+                if meta.get("title"):
+                    broadcast_title = meta["title"]
+                if not streamer_name and meta.get("channel_name"):
+                    target_streamer = meta["channel_name"]
+                print(f"[1/5] Metadata loaded: {broadcast_date} - {broadcast_title}", flush=True)
 
-    if selected_mode in ("collab", "both"):
-        print(f"[2/5] Scanning audio tension curves & DTW matching for Collab...", flush=True)
-        collab_markers = facade.scanner.scan(
-            vod_url_or_no,
-            collab_p,
-            scan_mode="collab",
-            preloaded_audio=audio_samples,
-            preloaded_chats=preloaded_chats,
-        )
-        print(f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.", flush=True)
+        # 2. Dynamic DNA Profile Resolution (Zero Hardcoding)
+        if solo_profile:
+            solo_p = ChannelProfile.from_dict(solo_profile)
+        else:
+            db_solo = facade.db.get_profile(f"{target_streamer}_Solo") or facade.db.get_profile(target_streamer)
+            if db_solo:
+                solo_p = db_solo
+            else:
+                solo_p = ChannelProfile.from_dict(PSYCHOLOGY_SOLO_PROFILE)
+                solo_p.channel_name = f"{target_streamer}_Solo"
+        solo_p.profile_type = "solo"
 
-    # 4. Generate Subtitles for target markers
-    target_markers = solo_markers if selected_mode == "solo" else (collab_markers if selected_mode == "collab" else solo_markers)
-    target_p = solo_p if selected_mode == "solo" else (collab_p if selected_mode == "collab" else solo_p)
+        if collab_profile:
+            collab_p = ChannelProfile.from_dict(collab_profile)
+        else:
+            db_collab = facade.db.get_profile(f"{target_streamer}_Collab")
+            if db_collab:
+                collab_p = db_collab
+            else:
+                collab_p = ChannelProfile.from_dict(PSYCHOLOGY_COLLAB_PROFILE)
+                collab_p.channel_name = f"{target_streamer}_Collab"
+        collab_p.profile_type = "collab"
 
-    subtitles = []
-    if target_markers:
-        try:
-            print(f"[3/5] Transcribing speech with Whisper AI on GPU & Kiwi alignment ({len(target_markers)} cuts)...", flush=True)
-            subtitles = facade._generate_subtitles(
-                vod_url_or_no, broadcast_date, broadcast_title, target_markers, target_p, None
+        # 3. Audio Extraction & Fast Chat Caching (Single Download)
+        print("[2/5] Extracting audio stream once into memory (16kHz)...", flush=True)
+        audio_samples = facade.scanner.audio_engine.extract_audio_in_memory(vod_url_or_no)
+        facade.scanner.last_audio_samples = audio_samples
+
+        total_dur_sec = len(audio_samples) / 16000.0 if len(audio_samples) > 0 else 0.0
+        preloaded_chats = None
+        if v_no and total_dur_sec > 0:
+            try:
+                print(f"[2/5] Fetching live chat logs for video {v_no} ({total_dur_sec:.1f}s)...", flush=True)
+                preloaded_chats = facade.scanner.chat_engine.fetch_vod_chat_logs(v_no, total_dur_sec)
+                print(f"[2/5] Chat logs loaded: {len(preloaded_chats) if preloaded_chats else 0} entries.", flush=True)
+            except Exception as chat_err:
+                print(f"[Chat Fetch Notice] {chat_err}", flush=True)
+
+        solo_markers = []
+        collab_markers = []
+
+        if selected_mode in ("solo", "both"):
+            print("[2/5] Scanning audio tension curves & DTW matching for Solo...", flush=True)
+            solo_markers = facade.scanner.scan(
+                vod_url_or_no,
+                solo_p,
+                scan_mode="solo",
+                preloaded_audio=audio_samples,
+                preloaded_chats=preloaded_chats,
             )
-            print(f"[3/5] Subtitle transcription complete: {len(subtitles)} dialogue segments.", flush=True)
-        except Exception as e:
-            print(f"[Subtitle STT Error] {e}", flush=True)
+            print(f"[2/5] Solo scan complete: {len(solo_markers)} highlight markers identified.", flush=True)
 
-    # 5. Export XML to memory
-    print(f"[4/5] Packaging Final Cut Pro XML & SRT subtitle files...", flush=True)
-    import tempfile
-    from channel_dna.core.utils import sanitize_filename
+        if selected_mode in ("collab", "both"):
+            print("[2/5] Scanning audio tension curves & DTW matching for Collab...", flush=True)
+            collab_markers = facade.scanner.scan(
+                vod_url_or_no,
+                collab_p,
+                scan_mode="collab",
+                preloaded_audio=audio_samples,
+                preloaded_chats=preloaded_chats,
+            )
+            print(f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.", flush=True)
 
-    clean_title = sanitize_filename(broadcast_title, max_length=40)
-    clean_stem = f"{broadcast_date}_{clean_title}"
-    tmp_dir = Path(tempfile.gettempdir())
+        # 4. Generate Subtitles for target markers
+        target_markers = solo_markers if selected_mode == "solo" else (collab_markers if selected_mode == "collab" else solo_markers)
+        target_p = solo_p if selected_mode == "solo" else (collab_p if selected_mode == "collab" else solo_p)
 
-    solo_xml_content = ""
-    collab_xml_content = ""
+        subtitles = []
+        if target_markers:
+            try:
+                print(
+                    f"[3/5] Transcribing speech with Whisper AI on GPU & Kiwi alignment ({len(target_markers)} cuts)...",
+                    flush=True,
+                )
+                subtitles = facade._generate_subtitles(
+                    vod_url_or_no, broadcast_date, broadcast_title, target_markers, target_p, None
+                )
+                print(f"[3/5] Subtitle transcription complete: {len(subtitles)} dialogue segments.", flush=True)
+            except Exception as e:
+                print(f"[Subtitle STT Error] {e}", flush=True)
 
-    if solo_markers:
-        solo_xml_path = tmp_dir / f"{clean_stem}_Solo_60fps.xml"
-        facade.exporter.export(
-            solo_markers,
-            vod_url_or_no,
-            str(solo_xml_path),
-            fps=60.0,
-            export_format="xml",
-            video_file_name=f"{clean_stem}.mp4",
+        # 5. Export XML to memory
+        print("[4/5] Packaging Final Cut Pro XML & SRT subtitle files...", flush=True)
+        clean_title = sanitize_filename(broadcast_title, max_length=40)
+        clean_stem = f"{broadcast_date}_{clean_title}"
+        tmp_dir = Path(tempfile.gettempdir())
+
+        solo_xml_content = ""
+        collab_xml_content = ""
+
+        if solo_markers:
+            solo_xml_path = tmp_dir / f"{clean_stem}_Solo_60fps.xml"
+            facade.exporter.export(
+                solo_markers,
+                vod_url_or_no,
+                str(solo_xml_path),
+                fps=60.0,
+                export_format="xml",
+                video_file_name=f"{clean_stem}.mp4",
+            )
+            solo_xml_content = solo_xml_path.read_text(encoding="utf-8") if solo_xml_path.exists() else ""
+
+        if collab_markers:
+            collab_xml_path = tmp_dir / f"{clean_stem}_Collab_60fps.xml"
+            facade.exporter.export(
+                collab_markers,
+                vod_url_or_no,
+                str(collab_xml_path),
+                fps=60.0,
+                export_format="xml",
+                video_file_name=f"{clean_stem}.mp4",
+            )
+            collab_xml_content = collab_xml_path.read_text(encoding="utf-8") if collab_xml_path.exists() else ""
+
+        # 6. Export SRT to memory
+        srt_content = ""
+        if subtitles and target_markers:
+            rough_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
+                subtitles, target_markers, fps=60.0
+            )
+            if rough_subs:
+                srt_path = tmp_dir / f"{clean_stem}_자막.srt"
+                facade.subtitle_engine.export_srt(rough_subs, str(srt_path))
+                srt_content = srt_path.read_text(encoding="utf-8") if srt_path.exists() else ""
+
+        # 7. Generate Guide Text for Discord integration
+        guide_content = GuideGenerator.generate_guide_text(
+            vod_title=broadcast_title,
+            vod_date=broadcast_date,
+            total_markers=len(target_markers),
         )
-        solo_xml_content = solo_xml_path.read_text(encoding="utf-8") if solo_xml_path.exists() else ""
+        print("[5/5] Package successfully generated! Returning package to Discord bot.", flush=True)
 
-    if collab_markers:
-        collab_xml_path = tmp_dir / f"{clean_stem}_Collab_60fps.xml"
-        facade.exporter.export(
-            collab_markers,
-            vod_url_or_no,
-            str(collab_xml_path),
-            fps=60.0,
-            export_format="xml",
-            video_file_name=f"{clean_stem}.mp4",
-        )
-        collab_xml_content = collab_xml_path.read_text(encoding="utf-8") if collab_xml_path.exists() else ""
+        return {
+            "success": True,
+            "selected_mode": selected_mode,
+            "streamer_name": target_streamer,
+            "broadcast_title": broadcast_title,
+            "broadcast_date": broadcast_date,
+            "recommended_filename": f"{clean_stem}.mp4",
+            "solo_xml_content": solo_xml_content,
+            "collab_xml_content": collab_xml_content,
+            "srt_content": srt_content,
+            "guide_txt_content": guide_content,
+            "solo_marker_count": len(solo_markers),
+            "collab_marker_count": len(collab_markers),
+            "sub_count": len(subtitles),
+        }
 
-    # 7. Export SRT to memory
-    srt_content = ""
-    if subtitles and target_markers:
-        rough_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
-            subtitles, target_markers, fps=60.0
-        )
-        if rough_subs:
-            srt_path = tmp_dir / f"{clean_stem}_자막.srt"
-            facade.subtitle_engine.export_srt(rough_subs, str(srt_path))
-            srt_content = srt_path.read_text(encoding="utf-8") if srt_path.exists() else ""
-
-    # 8. Generate Corporate Memo Guide.txt
-    guide_content = GuideGenerator.generate_guide_text(
-        vod_title=broadcast_title,
-        vod_date=broadcast_date,
-        total_markers=len(target_markers),
-    )
-    print(f"[5/5] Package successfully generated! Returning package to Discord bot.", flush=True)
-
-    return {
-        "success": True,
-        "selected_mode": selected_mode,
-        "streamer_name": target_streamer,
-        "broadcast_title": broadcast_title,
-        "broadcast_date": broadcast_date,
-        "recommended_filename": f"{clean_stem}.mp4",
-        "solo_xml_content": solo_xml_content,
-        "collab_xml_content": collab_xml_content,
-        "srt_content": srt_content,
-        "guide_txt_content": guide_content,
-        "solo_marker_count": len(solo_markers),
-        "collab_marker_count": len(collab_markers),
-        "sub_count": len(subtitles),
-    }
+    finally:
+        # Explicit GPU memory and RAM cleanup
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        gc.collect()
 
 
 def process_chzzk_vod_local(
@@ -246,13 +263,14 @@ def process_chzzk_vod_local(
     collab_profile: dict[str, Any] | None = None,
     selected_mode: str = "solo",
 ) -> dict[str, Any]:
-    """Local fallback runner."""
+    """Local fallback runner for development and offline execution."""
     return _execute_pipeline_core(
         vod_url_or_no, streamer_name, solo_profile, collab_profile, selected_mode
     )
 
 
 if app is not None and image is not None:
+
     @app.function(
         image=image,
         gpu="L4",
@@ -279,6 +297,7 @@ if app is not None and image is not None:
     def keep_render_bot_awake():
         """Periodically pings the Render Web Service every 5 minutes to prevent sleep."""
         import urllib.request
+
         try:
             req = urllib.request.Request(
                 "https://roughcut-bot.onrender.com/health",
@@ -289,21 +308,8 @@ if app is not None and image is not None:
         except Exception as e:
             print(f"[KeepAlive Ping Notice] {e}")
 
-
     @app.local_entrypoint()
-    def test_run(vod_no: str = "14728683", streamer: str = "양망두"):
-        print(f"Invoking process_chzzk_vod_cloud on Modal for {vod_no} ({streamer})...")
-        res = process_chzzk_vod_cloud.remote(vod_no, streamer)
+    def test_run(vod_no: str = "14728683", streamer: str = "양망두", mode: str = "solo"):
+        print(f"Invoking process_chzzk_vod_cloud on Modal for {vod_no} ({streamer}, mode={mode})...")
+        res = process_chzzk_vod_cloud.remote(vod_no, streamer, selected_mode=mode)
         print("Test Run Result:", res.get("success"), res.get("broadcast_title"))
-
-
-def process_chzzk_vod_local(
-    vod_url_or_no: str,
-    streamer_name: str = "",
-    solo_profile: dict[str, Any] | None = None,
-    collab_profile: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Local fallback function for development and testing with dynamic DNA profile."""
-    return _execute_pipeline_core(
-        vod_url_or_no, streamer_name, solo_profile, collab_profile
-    )
