@@ -1,0 +1,29 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Build & distribution
+build/
+dist/
+native_src/target/
+*.egg-info/
+*.spec.bak
+
+# ChannelDNA cache & database
+.cache/
+export_packages/
+output/
+crash_log.txt
+*.log
+
+# Node & Rust builds
+node_modules/
+dist-ui/
+src-tauri/target/
+*.exe
+oracle_cloud_bundle.zip
+venv/
+.venv/
+
