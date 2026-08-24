@@ -86,10 +86,6 @@ async def start_health_server():
 @bot.event
 async def on_ready():
     print(f"[OK] RoughCut Discord Bot logged in as: {bot.user} (ID: {bot.user.id})")
-    try:
-        await start_health_server()
-    except Exception as e:
-        print(f"[Health Server Warning] {e}")
 
     try:
         synced = await bot.tree.sync()
