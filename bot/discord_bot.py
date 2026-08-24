@@ -437,29 +437,37 @@ async def execute_vod_pipeline_and_deliver(
                 filename=f"{b_date}_{streamer_name}_자막.srt",
             )
         )
-        file_desc_lines.append("• 자막 (SRT): 음성 인식 기반 초벌 자막 파일")
+        file_desc_lines.append("• 자막 (SRT): 한국어 특화 고정밀 초벌 자막 파일")
 
-    if guide_txt:
-        files_to_send.append(
-            discord.File(
-                io.BytesIO(guide_txt.encode("utf-8")),
-                filename="가이드.txt",
-            )
+    marker_count = (
+        result.get("solo_marker_count", 0)
+        if selected_mode == "solo"
+        else (
+            result.get("collab_marker_count", 0)
+            if selected_mode == "collab"
+            else (result.get("solo_marker_count", 0) + result.get("collab_marker_count", 0))
         )
-        file_desc_lines.append("• 가이드 (TXT): 편집기 불러오기 및 타임라인 연결 가이드")
+    )
 
     desc_block = "\n".join(file_desc_lines)
     delivery_msg = f"""[가편집 파일 전송 안내 - {mode_kr}]
 
 • 방송 제목: {b_title}
 • 방송 일시: {b_date}
+• 추출 컷: {marker_count}개 하이라이트 구간
 
 [1. 원본 영상 파일명 설정]
-편집 프로그램에서 파일을 정상적으로 연결하기 위해, 원본 영상(mp4)의 이름을 아래와 동일하게 설정해 주세요.
+편집 프로그램에서 타임라인을 자동 연결하기 위해, 원본 영상(mp4)의 이름을 아래와 동일하게 설정해 주세요.
 👉 {rec_filename}
 
 [2. 첨부 파일 구성]
 {desc_block}
+
+[3. 편집 프로그램 적용 방법]
+1. 원본 영상(mp4)의 파일명을 위의 권장 파일명과 동일하게 변경합니다.
+2. 원본 영상과 첨부 파일(XML, SRT)을 동일한 폴더에 함께 둡니다.
+3. 편집기(프리미어 / 파이널컷 / 다빈치)에서 [파일] ➔ [가져오기(Import)]로 XML 파일을 불러옵니다.
+4. 생성된 가편집 타임라인 위에 SRT 자막 파일을 드래그하여 배치합니다.
 """
 
     user = await bot.fetch_user(discord_user_id)
