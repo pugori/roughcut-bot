@@ -104,6 +104,7 @@ export const ExtractTab = ({
       if (ticker) clearInterval(ticker);
       setProgress({ pct: 100, msg: "채널 일괄 수집 및 DNA 학습 완료" });
       addLog(`🎉 [채널 일괄 수집 완료] '${sName}' 대표 영상 총 ${updatedVideos.length}편 SQLite DB 적재 완료!`, "SUCCESS");
+      setFilterStreamer(sName);
       onRefresh();
 
       // Auto Cloud Sync for newly extracted DNA
