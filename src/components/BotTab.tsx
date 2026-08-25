@@ -256,16 +256,19 @@ export const BotTab: React.FC<BotTabProps> = ({
               />
             </div>
           </div>
-          <p className="text-[11px] text-cyan-300/80 bg-cyan-950/20 px-3 py-1.5 rounded-lg border border-cyan-500/20">
-            💡 인터넷 브라우저 주소창의 링크(예: https://chzzk.naver.com/b3e262a2...)를 그대로 복사/붙여넣기 하시면 32자리 고유 채널 ID가 100% 자동 인식됩니다.
-          </p>
+          <div className="bg-[#0A0D14] border border-cyan-500/20 rounded-lg p-3 text-xs flex items-center justify-between">
+            <span className="text-slate-400">🔗 발급 매칭 요약:</span>
+            <span className="text-cyan-300 font-semibold font-mono">
+              스트리머 <strong className="text-white">[{selectedStreamer || "미선택"}]</strong> ➔ 적용 DNA 스타일 <strong className="text-[#00E5FF]">[{targetDna || selectedStreamer || "미지정"}]</strong>
+            </span>
+          </div>
 
           <button
             onClick={handleIssuePasscode}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm font-bold rounded-lg shadow-lg transition-all"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm font-bold rounded-lg shadow-lg transition-all cursor-pointer"
           >
             <ShieldCheck className="w-4 h-4" />
-            지정 DNA 연결 & 1회용 암호 발급
+            선택한 맞춤 DNA로 1회용 암호 발급 & 클라우드 등록
           </button>
 
           {/* Issued Card Area */}
