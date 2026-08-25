@@ -30,9 +30,9 @@ interface ScanTabProps {
 
 export const ScanTab = ({ streamers, addLog, setProgress }: ScanTabProps) => {
   const [sourceMode, setSourceMode] = useState<"chzzk" | "local">("chzzk");
-  const [scanStreamerPreset, setScanStreamerPreset] = useState(streamers[0] || "양망두");
-  const [selectedDnaStyle, setSelectedDnaStyle] = useState(streamers[0] ? `${streamers[0]}_Solo` : "양망두_Solo");
-  const [chzzkEntry, setChzzkEntry] = useState("https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250");
+  const [scanStreamerPreset, setScanStreamerPreset] = useState("");
+  const [selectedDnaStyle, setSelectedDnaStyle] = useState("");
+  const [chzzkEntry, setChzzkEntry] = useState("");
   const [localFilePath, setLocalFilePath] = useState("");
   const [vodList, setVodList] = useState<VODRow[]>([]);
   const [selectedVodNo, setSelectedVodNo] = useState<string>("");
@@ -40,8 +40,32 @@ export const ScanTab = ({ streamers, addLog, setProgress }: ScanTabProps) => {
   const [isFetchingVods, setIsFetchingVods] = useState(false);
   const [lastGeneratedFolder, setLastGeneratedFolder] = useState<string>("");
 
+  const handleSelectStreamer = async (sName: string) => {
+    setScanStreamerPreset(sName);
+    if (sName) {
+      setSelectedDnaStyle(`${sName}_Solo`);
+      try {
+        const [solo] = await invoke<[any, any]>("get_two_track_profiles", { streamerName: sName });
+        if (solo && solo.chzzk_url) {
+          setChzzkEntry(solo.chzzk_url);
+        } else {
+          setChzzkEntry("");
+        }
+      } catch {
+        setChzzkEntry("");
+      }
+    } else {
+      setSelectedDnaStyle("");
+      setChzzkEntry("");
+    }
+  };
+
   const handleFetchChzzkVods = async () => {
-    const targetUrl = chzzkEntry || "https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250";
+    const targetUrl = chzzkEntry.trim();
+    if (!targetUrl) {
+      addLog("치지직 방송 채널 주소를 입력하거나 분석 스트리머를 선택해 주세요.", "WARN");
+      return;
+    }
     setIsFetchingVods(true);
     addLog(`[치지직 탐색] 네이버 치지직 라이브 API 호출 중: ${targetUrl}`, "INFO");
 
@@ -200,13 +224,10 @@ export const ScanTab = ({ streamers, addLog, setProgress }: ScanTabProps) => {
             <span className="font-bold text-slate-200 text-xs w-28">👤 분석 스트리머:</span>
             <select
               value={scanStreamerPreset}
-              onChange={(e) => {
-                const sName = e.target.value;
-                setScanStreamerPreset(sName);
-                setSelectedDnaStyle(`${sName}_Solo`);
-              }}
+              onChange={(e) => handleSelectStreamer(e.target.value)}
               className="flex-1 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-[#00E5FF]"
             >
+              <option value="">스트리머 선택...</option>
               {streamers.map((s) => (
                 <option key={s} value={s}>
                   {s} (등록된 프로필)
@@ -222,8 +243,14 @@ export const ScanTab = ({ streamers, addLog, setProgress }: ScanTabProps) => {
               onChange={(e) => setSelectedDnaStyle(e.target.value)}
               className="flex-1 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-xs text-[#00E5FF] font-bold focus:outline-none focus:border-[#00E5FF]"
             >
-              <option value={`${scanStreamerPreset}_Solo`}>🎯 {scanStreamerPreset}_Solo (솔로 텐션 & 심리학 호흡)</option>
-              <option value={`${scanStreamerPreset}_Collab`}>👥 {scanStreamerPreset}_Collab (합방 텐션 & 심리학 빠른 컷)</option>
+              {scanStreamerPreset ? (
+                <>
+                  <option value={`${scanStreamerPreset}_Solo`}>🎯 {scanStreamerPreset}_Solo (솔로 텐션 & 심리학 호흡)</option>
+                  <option value={`${scanStreamerPreset}_Collab`}>👥 {scanStreamerPreset}_Collab (합방 텐션 & 심리학 빠른 컷)</option>
+                </>
+              ) : (
+                <option value="">스트리머를 먼저 선택하세요</option>
+              )}
             </select>
           </div>
         </div>

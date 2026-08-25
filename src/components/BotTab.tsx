@@ -209,20 +209,32 @@ export const BotTab: React.FC<BotTabProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
             <div>
               <label className="text-xs font-semibold text-slate-400 block mb-1.5">
-                1. 대상 스트리머
+                1. 대상 스트리머 (직접 입력 또는 선택)
               </label>
-              <select
-                value={selectedStreamer}
-                onChange={(e) => handleSelectStreamer(e.target.value)}
-                className="w-full px-3 py-2 bg-[#0A0D14] border border-[#2B354C] rounded-lg text-sm text-white focus:outline-none focus:border-[#00E5FF]"
-              >
-                <option value="">스트리머 선택...</option>
-                {streamers.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="신규 스트리머명 직접 입력"
+                  value={selectedStreamer}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedStreamer(val);
+                  }}
+                  className="flex-1 px-3 py-2 bg-[#0A0D14] border border-[#2B354C] rounded-lg text-sm text-white focus:outline-none focus:border-[#00E5FF]"
+                />
+                <select
+                  value={streamers.includes(selectedStreamer) ? selectedStreamer : ""}
+                  onChange={(e) => handleSelectStreamer(e.target.value)}
+                  className="w-32 px-2 py-2 bg-[#0A0D14] border border-[#2B354C] rounded-lg text-xs text-slate-300 focus:outline-none focus:border-[#00E5FF]"
+                >
+                  <option value="" disabled>기존 목록...</option>
+                  {streamers.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -230,14 +242,14 @@ export const BotTab: React.FC<BotTabProps> = ({
                 2. 적용할 DNA 스타일
               </label>
               <select
-                value={targetDna || selectedStreamer}
+                value={targetDna}
                 onChange={(e) => setTargetDna(e.target.value)}
                 className="w-full px-3 py-2 bg-[#0A0D14] border border-cyan-500/40 rounded-lg text-sm text-cyan-200 focus:outline-none focus:border-[#00E5FF]"
               >
-                <option value="">(기본) 본인 스타일</option>
+                <option value="">(기본) 본인 고유 스타일</option>
                 {streamers.map((s) => (
                   <option key={s} value={s}>
-                    {s} 스타일 DNA
+                    ⭐ {s} 스타일 DNA (호흡/텐션 복제)
                   </option>
                 ))}
               </select>
@@ -251,7 +263,7 @@ export const BotTab: React.FC<BotTabProps> = ({
                 type="text"
                 value={channelUrl}
                 onChange={(e) => setChannelUrl(e.target.value)}
-                placeholder="https://chzzk.naver.com/스트리머_주소"
+                placeholder="https://chzzk.naver.com/... 또는 채널ID"
                 className="w-full px-3 py-2 bg-[#0A0D14] border border-[#2B354C] rounded-lg text-sm text-white focus:outline-none focus:border-[#00E5FF]"
               />
             </div>
