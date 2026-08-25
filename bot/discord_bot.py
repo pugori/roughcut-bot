@@ -90,7 +90,7 @@ async def handle_sync_profile(request):
         if not profile_data:
             return web.json_response({"success": False, "error": "Missing profile data"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
 
-        from channel_dna.models.channel_profile import ChannelProfile
+        from channel_dna.core.models import ChannelProfile
         prof = ChannelProfile.from_dict(profile_data)
         db.save_profile(prof)
         print(f"[Cloud Profile Synced] Saved '{prof.channel_name}' ({prof.profile_type}) to Render DB.")
