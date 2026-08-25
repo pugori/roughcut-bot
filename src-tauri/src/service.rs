@@ -60,6 +60,17 @@ impl ServiceState {
             6.77
         };
 
+        let existing_solo = self.db.get_profile(&format!("{}_Solo", streamer_name)).unwrap_or(None);
+        let existing_collab = self.db.get_profile(&format!("{}_Collab", streamer_name)).unwrap_or(None);
+
+        let yt_url = existing_solo.as_ref().and_then(|p| p.youtube_url.clone())
+            .or_else(|| existing_collab.as_ref().and_then(|p| p.youtube_url.clone()))
+            .unwrap_or_else(|| format!("https://www.youtube.com/@{}", streamer_name));
+
+        let ch_url = existing_solo.as_ref().and_then(|p| p.chzzk_url.clone())
+            .or_else(|| existing_collab.as_ref().and_then(|p| p.chzzk_url.clone()))
+            .unwrap_or_default();
+
         let solo_p = ChannelProfile {
             profile_id: format!("{}_Solo", streamer_name),
             channel_name: format!("{}_Solo", streamer_name),
@@ -69,9 +80,9 @@ impl ServiceState {
             silence_tolerance: 0.8,
             highlight_rms_threshold: 0.95,
             hook_duration: 15.0,
-            custom_vocab: Some("양망두, 망두, 마인크래프트".to_string()),
-            youtube_url: Some("https://www.youtube.com/@양망두".to_string()),
-            chzzk_url: Some("https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250".to_string()),
+            custom_vocab: Some(format!("{}, 방송, 하이라이트", streamer_name)),
+            youtube_url: Some(yt_url.clone()),
+            chzzk_url: if ch_url.is_empty() { None } else { Some(ch_url.clone()) },
             profile_type: "solo".to_string(),
             burst_cut_asl: Some(2.5),
             burst_min_duration: Some(4.0),
@@ -89,9 +100,9 @@ impl ServiceState {
             silence_tolerance: 1.2,
             highlight_rms_threshold: 1.10,
             hook_duration: 15.0,
-            custom_vocab: Some("양망두, 망두, 합방, 마인크래프트".to_string()),
-            youtube_url: Some("https://www.youtube.com/@양망두".to_string()),
-            chzzk_url: Some("https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250".to_string()),
+            custom_vocab: Some(format!("{}, 합방, 게임", streamer_name)),
+            youtube_url: Some(yt_url),
+            chzzk_url: if ch_url.is_empty() { None } else { Some(ch_url) },
             profile_type: "collab".to_string(),
             burst_cut_asl: Some(3.2),
             burst_min_duration: Some(4.5),
@@ -127,6 +138,8 @@ impl ServiceState {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
+        cmd.env("PYTHONIOENCODING", "utf-8")
+           .env("PYTHONUTF8", "1");
         let _ = cmd
             .args([
                 "-m",
@@ -154,6 +167,8 @@ impl ServiceState {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
+        cmd.env("PYTHONIOENCODING", "utf-8")
+           .env("PYTHONUTF8", "1");
         let output = cmd
             .args([
                 "-m",
@@ -192,6 +207,8 @@ impl ServiceState {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
+        cmd.env("PYTHONIOENCODING", "utf-8")
+           .env("PYTHONUTF8", "1");
         let output = cmd
             .args([
                 "-m",
