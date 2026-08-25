@@ -79,16 +79,21 @@ export const BotTab: React.FC<BotTabProps> = ({
   const ADMIN_SECRET = "channeldna-secret-admin-key-2026";
 
   const handleIssuePasscode = async () => {
+    const sName = selectedStreamer.trim();
+    if (!sName) {
+      addLog("대상 스트리머 이름을 입력하거나 목록에서 선택해 주세요.", "WARN");
+      return;
+    }
     const targetChannel = channelUrl.trim();
     if (!targetChannel) {
       addLog("치지직 방송 채널 주소를 입력해 주세요.", "WARN");
       return;
     }
-    const selectedDna = targetDna || selectedStreamer;
+    const selectedDna = targetDna || sName;
     try {
-      addLog(`[${selectedStreamer}] 1회용 등록 암호 발급 중 (적용 DNA: ${selectedDna})...`, "INFO");
+      addLog(`[${sName}] 1회용 등록 암호 발급 중 (적용 DNA: ${selectedDna})...`, "INFO");
       const passcode = await invoke<string>("issue_streamer_passcode", {
-        streamerName: selectedStreamer,
+        streamerName: sName,
         channelId: targetChannel,
         targetDnaProfile: selectedDna,
       });
