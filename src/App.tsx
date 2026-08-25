@@ -4,7 +4,6 @@ import { Header } from "./components/Header";
 import { TabNav } from "./components/TabNav";
 import { ExtractTab } from "./components/ExtractTab";
 import { ProfilesTab } from "./components/ProfilesTab";
-import { ScanTab } from "./components/ScanTab";
 import { BotTab } from "./components/BotTab";
 import { TerminalFooter } from "./components/TerminalFooter";
 
@@ -46,7 +45,7 @@ interface ChannelProfile {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"extract" | "profiles" | "scan" | "bot">("extract");
+  const [activeTab, setActiveTab] = useState<"extract" | "profiles" | "bot">("extract");
   const [stats, setStats] = useState<DbStats>({ channel_count: 0, video_count: 0, profile_count: 0, marker_count: 0 });
   const [streamers, setStreamers] = useState<string[]>([]);
   const [selectedStreamer, setSelectedStreamer] = useState<string>("");
@@ -149,14 +148,6 @@ export default function App() {
               onRecalculateDna={handleRecalculateDna}
               onRefresh={loadInitialData}
               addLog={addLog}
-            />
-          )}
-
-          {activeTab === "scan" && (
-            <ScanTab
-              streamers={streamers}
-              addLog={addLog}
-              setProgress={setProgress}
             />
           )}
 
