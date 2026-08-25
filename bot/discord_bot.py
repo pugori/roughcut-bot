@@ -143,12 +143,30 @@ async def handle_unbind_streamer(request):
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_list_profiles(request):
+    try:
+        with db._session() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT profile_id, channel_name, avg_shot_length, tension_interval, silence_tolerance, highlight_rms_threshold, profile_type, youtube_url, chzzk_url, updated_at FROM channel_profiles;")
+            rows = cur.fetchall()
+            profiles = [dict(r) for r in rows]
+
+            cur.execute("SELECT channel_id, streamer_name, target_dna_profile, passcode, is_bound, created_at, bound_at FROM streamer_bindings;")
+            b_rows = cur.fetchall()
+            bindings = [dict(b) for b in b_rows]
+
+        return web.json_response({"success": True, "profiles": profiles, "bindings": bindings}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 async def start_health_server():
     port = int(os.environ.get("PORT", 10000))
     app = web.Application()
     app.router.add_route("OPTIONS", "/{tail:.*}", handle_options)
     app.router.add_get("/", handle_health)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/api/list_profiles", handle_list_profiles)
     app.router.add_post("/api/sync_profile", handle_sync_profile)
     app.router.add_post("/api/issue_passcode", handle_issue_passcode)
     app.router.add_post("/api/unbind_streamer", handle_unbind_streamer)
