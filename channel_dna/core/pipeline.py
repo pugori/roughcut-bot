@@ -644,7 +644,7 @@ class PipelineFacade:
                     # Merge and Deduplicate by video ID
                     merged = {}
                     for v in pop_vids + lat_vids:
-                        merged[v["id"]] = v
+                        merged[v.get("id") or v["url"]] = v
                     videos = list(merged.values())
                 else:
                     sort_name = (
@@ -700,7 +700,7 @@ class PipelineFacade:
                             continue
 
                         result = self.extractor.analyze(
-                            v_url, channel_name, is_url=True, progress_cb=item_progress
+                            v_url, clean_channel_name, is_url=True, progress_cb=item_progress
                         )
                         self.db.save_video_analysis(result.metadata, result.segments)
                         saved_count += 1

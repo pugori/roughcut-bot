@@ -187,17 +187,47 @@ class ScanMarker:
 
 @dataclass
 class VideoAnalysisResult:
-    video_id: str
-    title: str
-    duration: float
-    avg_shot_length: float
-    cuts: list[float]
-    tension_curve: list[float]
-    tension_times: list[float]
-    dominant_tension_interval: float
-    speech_density: float = 0.75
-    laughter_score: float = 1.0
+    metadata: VideoMetadata
+    cut_timestamps: list[float] = field(default_factory=list)
     segments: list[SegmentData] = field(default_factory=list)
+    tension_times: list[float] = field(default_factory=list)
+    tension_values: list[float] = field(default_factory=list)
+
+    @property
+    def video_id(self) -> str:
+        return self.metadata.video_id
+
+    @property
+    def title(self) -> str:
+        return self.metadata.title
+
+    @property
+    def duration(self) -> float:
+        return self.metadata.duration
+
+    @property
+    def avg_shot_length(self) -> float:
+        return self.metadata.avg_shot_length
+
+    @property
+    def cuts(self) -> list[float]:
+        return self.cut_timestamps
+
+    @property
+    def tension_curve(self) -> list[float]:
+        return self.tension_values
+
+    @property
+    def dominant_tension_interval(self) -> float:
+        return 45.0
+
+    @property
+    def speech_density(self) -> float:
+        return getattr(self.metadata, "speech_density", 0.75)
+
+    @property
+    def laughter_score(self) -> float:
+        return getattr(self.metadata, "laughter_score", 1.0)
 
 
 ProgressCallback = Callable[[str, float, str], None]

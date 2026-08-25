@@ -33,6 +33,7 @@ export const ExtractTab = ({
   const [chzzkUrlInput, setChzzkUrlInput] = useState("https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250");
   const [batchCountOption, setBatchCountOption] = useState("최신/인기 20편");
   const [sortOption, setSortOption] = useState("밸런스 (인기+최신 균등)");
+  const [filterStreamer, setFilterStreamer] = useState<string>("all");
   const [isCollecting, setIsCollecting] = useState(false);
 
   const handleStartExtract = async () => {
@@ -210,9 +211,25 @@ export const ExtractTab = ({
       {/* Videos List Table */}
       <div className="flex-1 border border-[#1E2638] rounded-lg overflow-hidden bg-[#0E121B] flex flex-col">
         <div className="flex items-center justify-between px-3 py-2 border-b border-[#1E2638] bg-[#121622]">
-          <span className="text-xs font-bold text-slate-300">
-            📑 로컬 DB 누적 분석 영상 목록 (Accumulated DB Videos: {videos.length}편)
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-slate-300">
+              📑 로컬 DB 누적 분석 영상 목록 (
+              {videos.filter((v) => filterStreamer === "all" || (v.channel_name && v.channel_name.includes(filterStreamer))).length}
+              편 / 전체 {videos.length}편)
+            </span>
+            <select
+              value={filterStreamer}
+              onChange={(e) => setFilterStreamer(e.target.value)}
+              className="bg-[#161C2A] border border-[#1E2638] rounded px-2 py-0.5 text-[11px] text-[#00E5FF] focus:outline-none"
+            >
+              <option value="all">전체 스트리머 보기</option>
+              {streamers.map((s) => (
+                <option key={s} value={s}>
+                  [{s}] 채널 영상만 보기
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             onClick={onRefresh}
             className="text-[11px] text-[#00E5FF] hover:underline flex items-center gap-1 cursor-pointer"
@@ -232,7 +249,9 @@ export const ExtractTab = ({
               </tr>
             </thead>
             <tbody>
-              {videos.map((v, i) => (
+              {videos
+                .filter((v) => filterStreamer === "all" || (v.channel_name && v.channel_name.includes(filterStreamer)))
+                .map((v, i) => (
                 <tr key={v.video_id} className="border-b border-[#1E2638]/40 hover:bg-[#182030] transition-colors">
                   <td className="py-1.5 px-3 text-center font-bold text-slate-500">{i + 1}</td>
                   <td className="py-1.5 px-3 text-center">

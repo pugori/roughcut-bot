@@ -135,6 +135,7 @@ class VideoExtractor:
                 view_cnt = e.get("view_count") or 0
                 videos.append(
                     {
+                        "id": v_id,
                         "url": f"https://www.youtube.com/watch?v={v_id}",
                         "title": e.get("title", "Untitled"),
                         "view_count": int(view_cnt) if view_cnt else 0,
