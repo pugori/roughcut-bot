@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { DownloadCloud, ExternalLink } from "lucide-react";
 
@@ -28,13 +28,41 @@ export const ExtractTab = ({
   addLog,
   setProgress,
 }: ExtractTabProps) => {
-  const [streamerNameInput, setStreamerNameInput] = useState(streamers[0] || "양망두");
-  const [youtubeUrlInput, setYoutubeUrlInput] = useState("https://www.youtube.com/@양망두");
-  const [chzzkUrlInput, setChzzkUrlInput] = useState("https://chzzk.naver.com/b3e262a2795f17734c149afc738ad250");
+  const [streamerNameInput, setStreamerNameInput] = useState(streamers[0] || "");
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState(streamers[0] ? `https://www.youtube.com/@${streamers[0]}` : "");
+  const [chzzkUrlInput, setChzzkUrlInput] = useState("");
   const [batchCountOption, setBatchCountOption] = useState("최신/인기 20편");
   const [sortOption, setSortOption] = useState("밸런스 (인기+최신 균등)");
   const [filterStreamer, setFilterStreamer] = useState<string>("all");
   const [isCollecting, setIsCollecting] = useState(false);
+
+  const handleSelectStreamerDropdown = async (selected: string) => {
+    setStreamerNameInput(selected);
+    setFilterStreamer(selected || "all");
+    if (selected) {
+      try {
+        const [solo] = await invoke<[any, any]>("get_two_track_profiles", { streamerName: selected });
+        if (solo) {
+          if (solo.youtube_url) setYoutubeUrlInput(solo.youtube_url);
+          else setYoutubeUrlInput(`https://www.youtube.com/@${selected}`);
+          if (solo.chzzk_url) setChzzkUrlInput(solo.chzzk_url);
+          else setChzzkUrlInput("");
+        } else {
+          setYoutubeUrlInput(`https://www.youtube.com/@${selected}`);
+          setChzzkUrlInput("");
+        }
+      } catch {
+        setYoutubeUrlInput(`https://www.youtube.com/@${selected}`);
+        setChzzkUrlInput("");
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (streamers.length > 0 && !streamerNameInput) {
+      handleSelectStreamerDropdown(streamers[0]);
+    }
+  }, [streamers]);
 
   const handleStartExtract = async () => {
     const sName = streamerNameInput || (streamers.length > 0 ? streamers[0] : "양망두");
@@ -132,22 +160,22 @@ export const ExtractTab = ({
           <span className="col-span-2 font-bold text-slate-300">👤 스트리머명:</span>
           <input
             type="text"
-            placeholder="스트리머명 입력 (예: 양망두)"
+            placeholder="스트리머명 직접 입력 (예: 침착맨)"
             value={streamerNameInput}
             onChange={(e) => {
-              setStreamerNameInput(e.target.value);
-              setYoutubeUrlInput(`https://www.youtube.com/@${e.target.value}`);
+              const val = e.target.value;
+              setStreamerNameInput(val);
+              setFilterStreamer("all");
+              setYoutubeUrlInput(val ? `https://www.youtube.com/@${val}` : "");
             }}
             className="col-span-5 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-[#00E5FF]"
           />
           <select
-            value={streamerNameInput}
-            onChange={(e) => {
-              setStreamerNameInput(e.target.value);
-              setYoutubeUrlInput(`https://www.youtube.com/@${e.target.value}`);
-            }}
+            value={streamers.includes(streamerNameInput) ? streamerNameInput : ""}
+            onChange={(e) => handleSelectStreamerDropdown(e.target.value)}
             className="col-span-5 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-slate-200 focus:outline-none"
           >
+            <option value="" disabled>기존 등록 스트리머 선택...</option>
             {streamers.map((s) => (
               <option key={s} value={s}>
                 {s}
