@@ -93,6 +93,7 @@ export const ExtractTab = ({
       const updatedVideos: VideoMetadata[] = await invoke("start_channel_batch_collection", {
         streamerName: sName,
         channelUrl: youtubeUrlInput,
+        chzzkUrl: chzzkUrlInput,
         count: countNum,
         sortBy: sortOption,
       });
@@ -160,14 +161,9 @@ export const ExtractTab = ({
           <span className="col-span-2 font-bold text-slate-300">👤 스트리머명:</span>
           <input
             type="text"
-            placeholder="스트리머명 직접 입력 (예: 침착맨)"
+            placeholder="스트리머명 직접 입력 (예: 뵤오)"
             value={streamerNameInput}
-            onChange={(e) => {
-              const val = e.target.value;
-              setStreamerNameInput(val);
-              setFilterStreamer("all");
-              setYoutubeUrlInput(val ? `https://www.youtube.com/@${val}` : "");
-            }}
+            onChange={(e) => setStreamerNameInput(e.target.value)}
             className="col-span-5 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-[#00E5FF]"
           />
           <select
@@ -186,9 +182,10 @@ export const ExtractTab = ({
 
         {/* Row 2: YouTube */}
         <div className="grid grid-cols-12 gap-2 items-center">
-          <span className="col-span-2 font-bold text-slate-300">📺 유튜브 채널:</span>
+          <span className="col-span-2 font-bold text-slate-300">📺 유튜브 채널 주소:</span>
           <input
             type="text"
+            placeholder="유튜브 채널 링크 (예: https://www.youtube.com/@김뵤오)"
             value={youtubeUrlInput}
             onChange={(e) => setYoutubeUrlInput(e.target.value)}
             className="col-span-5 bg-[#161C2A] border border-[#1E2638] rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-[#00E5FF]"

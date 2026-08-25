@@ -49,13 +49,15 @@ async fn start_channel_batch_collection(
     state: State<'_, AppState>,
     streamer_name: String,
     channel_url: String,
+    chzzk_url: Option<String>,
     count: usize,
     sort_by: String,
 ) -> Result<Vec<VideoMetadata>, String> {
     let svc_arc = state.0.clone();
+    let ch_url_str = chzzk_url.unwrap_or_default();
     tokio::task::spawn_blocking(move || {
         let svc = svc_arc.blocking_lock();
-        svc.start_channel_batch_collection(&streamer_name, &channel_url, count, &sort_by)
+        svc.start_channel_batch_collection(&streamer_name, &channel_url, &ch_url_str, count, &sort_by)
     })
     .await
     .map_err(|e| e.to_string())?

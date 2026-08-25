@@ -32,6 +32,10 @@ impl ServiceState {
     }
 
     pub fn recalculate_dna(&self, streamer_name: &str) -> Result<(ChannelProfile, ChannelProfile), String> {
+        self.recalculate_dna_with_urls(streamer_name, "", "")
+    }
+
+    pub fn recalculate_dna_with_urls(&self, streamer_name: &str, custom_yt: &str, custom_ch: &str) -> Result<(ChannelProfile, ChannelProfile), String> {
         let videos = self.db.get_all_videos().map_err(|e| e.to_string())?;
         let filtered: Vec<&VideoMetadata> = videos.iter().filter(|v| {
             v.channel_name.as_deref().unwrap_or("").contains(streamer_name)
@@ -63,13 +67,21 @@ impl ServiceState {
         let existing_solo = self.db.get_profile(&format!("{}_Solo", streamer_name)).unwrap_or(None);
         let existing_collab = self.db.get_profile(&format!("{}_Collab", streamer_name)).unwrap_or(None);
 
-        let yt_url = existing_solo.as_ref().and_then(|p| p.youtube_url.clone())
-            .or_else(|| existing_collab.as_ref().and_then(|p| p.youtube_url.clone()))
-            .unwrap_or_else(|| format!("https://www.youtube.com/@{}", streamer_name));
+        let yt_url = if !custom_yt.is_empty() {
+            custom_yt.to_string()
+        } else {
+            existing_solo.as_ref().and_then(|p| p.youtube_url.clone())
+                .or_else(|| existing_collab.as_ref().and_then(|p| p.youtube_url.clone()))
+                .unwrap_or_else(|| format!("https://www.youtube.com/@{}", streamer_name))
+        };
 
-        let ch_url = existing_solo.as_ref().and_then(|p| p.chzzk_url.clone())
-            .or_else(|| existing_collab.as_ref().and_then(|p| p.chzzk_url.clone()))
-            .unwrap_or_default();
+        let ch_url = if !custom_ch.is_empty() {
+            custom_ch.to_string()
+        } else {
+            existing_solo.as_ref().and_then(|p| p.chzzk_url.clone())
+                .or_else(|| existing_collab.as_ref().and_then(|p| p.chzzk_url.clone()))
+                .unwrap_or_default()
+        };
 
         let solo_p = ChannelProfile {
             profile_id: format!("{}_Solo", streamer_name),
@@ -121,6 +133,7 @@ impl ServiceState {
         &self,
         streamer_name: &str,
         channel_url: &str,
+        chzzk_url: &str,
         count: usize,
         sort_by: &str,
     ) -> Result<Vec<VideoMetadata>, String> {
@@ -156,7 +169,7 @@ impl ServiceState {
             ])
             .output();
 
-        let _ = self.recalculate_dna(streamer_name);
+        let _ = self.recalculate_dna_with_urls(streamer_name, &target_url, chzzk_url);
         self.db.get_all_videos().map_err(|e| e.to_string())
     }
 
