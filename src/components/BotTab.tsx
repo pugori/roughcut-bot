@@ -98,7 +98,7 @@ export const BotTab: React.FC<BotTabProps> = ({
         targetDnaProfile: selectedDna,
       });
 
-      const copyText = `[제목] 안녕하세요 ${sName}님, 다시보기 가편집을 도와드리는 작은 디스코드 봇을 전해드립니다.
+      const copyText = `[제목] 안녕하세요 ${sName}님, 방송 영상 가편집을 도와드리는 작은 디스코드 봇을 전해드립니다.
 
 안녕하세요 ${sName}님.
 평소 ${sName}님의 유튜브 영상을 즐겨보고 있는 한 팬입니다.
