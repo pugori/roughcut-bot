@@ -69,9 +69,6 @@ export default function App() {
       setStats(s);
       const stList: string[] = await invoke("get_registered_streamers");
       setStreamers(stList);
-      if (stList.length > 0 && !selectedStreamer) {
-        setSelectedStreamer(stList[0]);
-      }
       const vList: VideoMetadata[] = await invoke("get_video_catalog");
       setVideos(vList);
       addLog("ChannelDNA Pro Rust Core 엔진 및 SQLite DB 연동 완료 (Standalone Native Mode)", "SUCCESS");

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { DownloadCloud, ExternalLink } from "lucide-react";
 
@@ -28,25 +28,23 @@ export const ExtractTab = ({
   addLog,
   setProgress,
 }: ExtractTabProps) => {
-  const [streamerNameInput, setStreamerNameInput] = useState(streamers[0] || "");
-  const [youtubeUrlInput, setYoutubeUrlInput] = useState(streamers[0] ? `https://www.youtube.com/@${streamers[0]}` : "");
+  const [streamerNameInput, setStreamerNameInput] = useState("");
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
   const [chzzkUrlInput, setChzzkUrlInput] = useState("");
   const [batchCountOption, setBatchCountOption] = useState("최신/인기 20편");
   const [sortOption, setSortOption] = useState("밸런스 (인기+최신 균등)");
-  const [filterStreamer, setFilterStreamer] = useState<string>("all");
+  const [filterStreamer, setFilterStreamer] = useState<string>("");
   const [isCollecting, setIsCollecting] = useState(false);
 
   const handleSelectStreamerDropdown = async (selected: string) => {
-    setStreamerNameInput(selected);
-    setFilterStreamer(selected || "all");
-    if (selected) {
+    setStreamerNameInput(selected === "all" ? "" : selected);
+    setFilterStreamer(selected);
+    if (selected && selected !== "all") {
       try {
         const [solo] = await invoke<[any, any]>("get_two_track_profiles", { streamerName: selected });
         if (solo) {
-          if (solo.youtube_url) setYoutubeUrlInput(solo.youtube_url);
-          else setYoutubeUrlInput(`https://www.youtube.com/@${selected}`);
-          if (solo.chzzk_url) setChzzkUrlInput(solo.chzzk_url);
-          else setChzzkUrlInput("");
+          setYoutubeUrlInput(solo.youtube_url || `https://www.youtube.com/@${selected}`);
+          setChzzkUrlInput(solo.chzzk_url || "");
         } else {
           setYoutubeUrlInput(`https://www.youtube.com/@${selected}`);
           setChzzkUrlInput("");
@@ -55,17 +53,22 @@ export const ExtractTab = ({
         setYoutubeUrlInput(`https://www.youtube.com/@${selected}`);
         setChzzkUrlInput("");
       }
+    } else if (selected === "all") {
+      setYoutubeUrlInput("");
+      setChzzkUrlInput("");
     }
   };
 
-  useEffect(() => {
-    if (streamers.length > 0 && !streamerNameInput) {
-      handleSelectStreamerDropdown(streamers[0]);
-    }
-  }, [streamers]);
-
   const handleStartExtract = async () => {
-    const sName = streamerNameInput || (streamers.length > 0 ? streamers[0] : "양망두");
+    const sName = streamerNameInput.trim();
+    if (!sName) {
+      addLog("스트리머명을 입력하거나 목록에서 선택해 주세요.", "WARN");
+      return;
+    }
+    if (!youtubeUrlInput.trim()) {
+      addLog("유튜브 채널 주소를 입력해 주세요.", "WARN");
+      return;
+    }
     const countNum = parseInt(batchCountOption.replace(/[^0-9]/g, "")) || 20;
 
     setIsCollecting(true);
@@ -238,19 +241,18 @@ export const ExtractTab = ({
         <div className="flex items-center justify-between px-3 py-2 border-b border-[#1E2638] bg-[#121622]">
           <div className="flex items-center gap-3">
             <span className="text-xs font-bold text-slate-300">
-              📑 로컬 DB 누적 분석 영상 목록 (
-              {videos.filter((v) => filterStreamer === "all" || (v.channel_name && v.channel_name.includes(filterStreamer))).length}
-              편 / 전체 {videos.length}편)
+              📑 {filterStreamer === "all" ? `전체 누적 영상 목록 (${videos.length}편)` : (filterStreamer ? `[${filterStreamer}] 채널 분석 영상 (${videos.filter((v) => v.channel_name && v.channel_name.includes(filterStreamer)).length}편)` : "로컬 DB 분석 영상 목록 (스트리머 미선택)")}
             </span>
             <select
               value={filterStreamer}
-              onChange={(e) => setFilterStreamer(e.target.value)}
+              onChange={(e) => handleSelectStreamerDropdown(e.target.value)}
               className="bg-[#161C2A] border border-[#1E2638] rounded px-2 py-0.5 text-[11px] text-[#00E5FF] focus:outline-none"
             >
-              <option value="all">전체 스트리머 보기</option>
+              <option value="">스트리머 선택...</option>
+              <option value="all">전체 스트리머 영상 보기 ({videos.length}편)</option>
               {streamers.map((s) => (
                 <option key={s} value={s}>
-                  [{s}] 채널 영상만 보기
+                  [{s}] 채널 영상 보기
                 </option>
               ))}
             </select>
@@ -274,7 +276,7 @@ export const ExtractTab = ({
               </tr>
             </thead>
             <tbody>
-              {videos
+              {filterStreamer && videos
                 .filter((v) => filterStreamer === "all" || (v.channel_name && v.channel_name.includes(filterStreamer)))
                 .map((v, i) => (
                 <tr key={v.video_id} className="border-b border-[#1E2638]/40 hover:bg-[#182030] transition-colors">
@@ -306,10 +308,31 @@ export const ExtractTab = ({
                   </td>
                 </tr>
               ))}
-              {videos.length === 0 && (
+              {!filterStreamer && (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-500">
-                    수집된 분석 영상이 없습니다. 상단에서 [배치 수집]을 시작해 보세요.
+                  <td colSpan={5} className="py-14 text-center text-slate-400">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-sm font-semibold text-slate-300">
+                        👆 상단에서 스트리머를 선택하시거나, 새로운 채널 정보를 입력해 주세요.
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        등록된 스트리머를 선택하면 해당 채널의 수집된 유튜브 영상 목록과 채널 주소가 표시됩니다.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {filterStreamer && filterStreamer !== "all" && videos.filter((v) => v.channel_name && v.channel_name.includes(filterStreamer)).length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-14 text-center text-slate-400">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-sm font-semibold text-slate-300">
+                        [{filterStreamer}] 스트리머의 수집된 영상이 아직 없습니다.
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        상단 유튜브 주소 확인 후 [🚀 채널 자동 일괄 수집 & DNA 학습]을 진행해 주세요.
+                      </span>
+                    </div>
                   </td>
                 </tr>
               )}

@@ -144,6 +144,7 @@ export const ProfilesTab = ({
             onChange={(e) => setSelectedStreamer(e.target.value)}
             className="bg-[#0E121B] border border-[#1E2638] rounded px-3 py-1.5 text-xs text-[#00E5FF] font-bold focus:outline-none focus:border-[#00E5FF] min-w-[200px]"
           >
+            <option value="">스트리머 선택...</option>
             {streamers.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
