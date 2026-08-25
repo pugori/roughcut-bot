@@ -98,19 +98,44 @@ export const BotTab: React.FC<BotTabProps> = ({
         targetDnaProfile: selectedDna,
       });
 
-      const copyText = `[치지직 VOD AI 가편집 서비스 이용 안내]
+      const copyText = `[제목] [치지직 방송 자동 가편집 & 자막 서비스] ${sName} 스트리머님 전용 계정 연동 안내
 
-치지직 다시보기 영상을 기반으로 가편집 타임라인(XML) 및 자막(SRT)을 자동 생성하는 전용 서비스입니다.
-사전 등록된 계정에 한해 1회 인증 후 이용 가능합니다.
+안녕하세요, ${sName} 스트리머님 및 소속사/매니지먼트 담당자님.
+치지직 방송 실시간 AI 가편집 및 타임라인 자동 패키징 솔루션팀입니다.
 
-1. 봇 1:1 대화방 접속: (봇 초대 링크)
-2. 대화창에 인증 명령어 입력:
-   /인증 암호:${passcode}
+${sName}님의 생방송 다시보기(VOD)를 기반으로 프리미어 프로/파이널컷 호환 1차 가편집 타임라인(XML) 및 화자 분리 자막(SRT)을 24시간 자동 생성하여 전송해 드리는 전용 서비스 계정이 발급되었습니다.
 
-※ 봇과의 1:1 대화방(DM)이 열려 있어야 가편집 결과물 파일 수신이 가능합니다.
-인증 완료 후 치지직 다시보기 링크(URL)를 전송하시면 분석이 진행됩니다.`;
+아래 안내에 따라 봇을 디스코드에 연동해 주시면, 별도의 수작업 없이 방송 종료 시마다 맞춤형 가편집 파일이 1:1 대화방으로 자동 직배송됩니다.
+
+──────────────────────────────────────────────────
+■ 1. 디스코드 AI 가편집 봇 초대 및 1:1 대화방 접속
+• 봇 초대 링크: 
+  https://discord.com/oauth2/authorize?client_id=1541475443767648377&permissions=2147483648&scope=bot%20applications.commands
+• 봇 이름: RoughCut Bot (치지직 자동 가편집 봇)
+※ 위 링크를 클릭하여 스트리머님의 디스코드 서버 또는 개인 작업용 서버에 봇을 초대해 주세요.
+
+■ 2. 1회용 전용 인증 암호 등록
+• 봇과의 1:1 대화창(DM) 또는 봇이 있는 채널에서 아래 명령어를 입력합니다.
+• 명령어:
+  /인증 암호:${passcode}
+
+■ 3. 서비스 이용 및 결과물 수령 방식
+• 자동 감지: 생방송 종료 시 봇이 방종을 자동 감지하여 가편집 시작 알림 전송
+• 모드 선택: [🎙️ 솔로 모드] 또는 [👥 합방 모드] 중 원하는 편집 호흡 선택
+• 결과 파일: 분석 완료 후 프리미어 타임라인(XML) 및 자막(SRT) 파일 자동 첨부 전송
+• 지난 방송 분석: 대화창에 치지직 다시보기 링크(URL)를 입력하시면 즉시 분석 진행
+
+■ 4. 유의사항
+• 봇과의 1:1 대화방(DM)이 열려 있어야 결과물 파일을 정상 수신할 수 있습니다.
+• 본 인증 암호는 ${sName}님의 채널에 1:1로 매칭된 1회용 고유 암호입니다.
+──────────────────────────────────────────────────
+
+서비스 이용 중 문의사항이나 피드백이 있으실 경우 언제든 회신해 주시기 바랍니다.
+감사합니다.
+
+치지직 AI 가편집 자동화 솔루션팀 드림`;
       setIssuedCard(copyText);
-      addLog(`✓ [${selectedStreamer}] 1회용 암호 발급 완료 (적용 DNA: ${selectedDna}): ${passcode}`, "SUCCESS");
+      addLog(`✓ [${sName}] 1회용 암호 발급 완료 (적용 DNA: ${selectedDna}): ${passcode}`, "SUCCESS");
 
       // Push to 24/7 Cloud Bot so local PC doesn't need to stay on
       try {
@@ -119,7 +144,7 @@ export const BotTab: React.FC<BotTabProps> = ({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             secret_key: ADMIN_SECRET,
-            streamer_name: selectedStreamer,
+            streamer_name: sName,
             channel_id: targetChannel,
             target_dna_profile: selectedDna,
             passcode: passcode,
