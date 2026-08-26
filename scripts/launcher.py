@@ -6,16 +6,28 @@
 4. Spawns standalone frameless ChannelDNA Studio window.
 """
 
-import base64
-import ctypes
-import hashlib
+# Explicitly import all runtime dependencies so PyInstaller packages them
 import io
-import os
-import shutil
-import sys
+import asyncio
+import aiohttp
+import aiohttp.web
+import sqlite3
+import dataclasses
+import json
+import logging
+import threading
+import webbrowser
+import subprocess
+import socket
 import tempfile
-import urllib.request
 import zipfile
+import urllib.request
+import base64
+import hashlib
+import ctypes
+import os
+import sys
+import shutil
 from pathlib import Path
 
 # Safe stdout handling in windowed mode
