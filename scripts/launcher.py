@@ -1,10 +1,9 @@
-"""ChannelDNA Studio Native Launcher (100% In-Memory RAM Decryption & Execution).
+"""ChannelDNA Studio Native Launcher (Secure RAM Decryption & Desktop Web GUI).
 
-This launcher acts as the entrypoint for users:
-1. Fetches or reads the AES-256 encrypted payload ('app.enc').
-2. Decrypts the code directly in RAM using the Master Key.
-3. Injects the unencrypted bytecode into Python sys.path/zipimport without writing .py files to disk.
-4. Boots ChannelDNA Studio UI securely.
+1. Reads AES-256 encrypted payload ('app.enc').
+2. Decrypts code and 2-Tab React UI bundle directly into a secure temporary runtime sandbox.
+3. Automatically launches the local Desktop Web GUI in the user's default browser.
+4. Keeps the session open until user exits.
 """
 
 import base64
@@ -16,6 +15,8 @@ import tempfile
 import zipfile
 import urllib.request
 import json
+import shutil
+import traceback
 from pathlib import Path
 
 # Ensure UTF-8 output on Windows
@@ -39,24 +40,37 @@ def get_master_key() -> bytes:
 
 
 def fetch_or_load_payload() -> bytes:
-    """Loads app.enc from local directory or fetches latest from GitHub Releases CDN (Zero Cost)."""
-    local_enc = Path(__file__).resolve().parent.parent / "dist_release" / "app.enc"
-    if not local_enc.exists():
-        local_enc = Path(sys.executable).resolve().parent / "app.enc"
+    """Loads app.enc from bundled PyInstaller data, local directory, or GitHub Releases."""
+    # 1. PyInstaller bundled data directory
+    if hasattr(sys, "_MEIPASS"):
+        meipass_enc = Path(sys._MEIPASS) / "app.enc"
+        if meipass_enc.exists():
+            return meipass_enc.read_bytes()
 
+    # 2. Local directory next to executable
+    local_enc = Path(sys.executable).resolve().parent / "app.enc"
     if local_enc.exists():
         return local_enc.read_bytes()
 
-    # Fallback to fetching from GitHub Releases CDN
+    # 3. Local source tree
+    dev_enc = Path(__file__).resolve().parent.parent / "dist_release" / "app.enc"
+    if dev_enc.exists():
+        return dev_enc.read_bytes()
+
+    dev_root_enc = Path(__file__).resolve().parent.parent / "app.enc"
+    if dev_root_enc.exists():
+        return dev_root_enc.read_bytes()
+
+    # 4. GitHub Releases CDN download
     github_url = "https://github.com/pugori/roughcut-bot/releases/latest/download/app.enc"
-    print(f"[*] Downloading secure encrypted runtime package from GitHub Releases...")
+    print(f"[*] 최신 보안 런타임 패키지(app.enc)를 다운로드하는 중입니다...", flush=True)
     try:
         req = urllib.request.Request(github_url, headers={"User-Agent": "ChannelDNA-Launcher/2.0"})
         with urllib.request.urlopen(req) as resp:
             return resp.read()
     except Exception as e:
-        print(f"[!] Failed to fetch app.enc from GitHub Releases: {e}")
-        raise FileNotFoundError("Encrypted runtime 'app.enc' not found locally or remotely.")
+        print(f"[!] 패키지 다운로드 실패: {e}", flush=True)
+        raise FileNotFoundError("암호화 런타임 'app.enc'를 찾을 수 없습니다.")
 
 
 def launch_in_memory():
@@ -64,39 +78,43 @@ def launch_in_memory():
         from cryptography.fernet import Fernet
     except ImportError:
         import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "cryptography"])
+        print("[*] 필수 보안 모듈(cryptography)을 설정하는 중입니다...", flush=True)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "cryptography", "aiohttp"])
         from cryptography.fernet import Fernet
 
-    print("==================================================")
-    print("🚀 ChannelDNA Studio v2.0 - Secure In-Memory Boot")
-    print("==================================================")
+    print("=" * 60)
+    print("🎬 ChannelDNA Studio v2.0 - 로컬 런처 시작")
+    print("=" * 60)
 
     # 1. Load & Decrypt Payload in RAM
     enc_data = fetch_or_load_payload()
     cipher = Fernet(get_master_key())
     
-    print("[*] Decrypting application code into RAM (Zero Disk Footprint)...")
+    print("[*] 보안 런타임 복호화 중...", flush=True)
     decrypted_zip_bytes = cipher.decrypt(enc_data)
 
-    # 2. Mount Decrypted Zip in Memory
-    # Write to a secure hidden temporary memory-mapped file for Python import loader
-    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_zip:
-        tmp_zip.write(decrypted_zip_bytes)
-        tmp_zip_path = tmp_zip.name
-
+    # 2. Extract into temporary secure sandbox
+    sandbox_dir = tempfile.mkdtemp(prefix="cdna_sandbox_")
     try:
-        # Prepend to Python sys.path so modules can be imported directly
-        sys.path.insert(0, tmp_zip_path)
+        with zipfile.ZipFile(io.BytesIO(decrypted_zip_bytes)) as zf:
+            zf.extractall(sandbox_dir)
 
-        # 3. Launch Local GUI
-        print("[*] Starting ChannelDNA Studio Engine...")
+        # Prepend to Python sys.path
+        sys.path.insert(0, sandbox_dir)
+
+        # 3. Launch Local Web Desktop GUI
+        print("[*] ChannelDNA Studio 로컬 워크스페이스를 시작합니다...\n", flush=True)
         import run_local_gui
         run_local_gui.main()
+    except Exception as e:
+        print(f"\n[오류 발생] 프로그램 실행 중 문제가 발생했습니다: {e}", flush=True)
+        traceback.print_exc()
+        input("\n프로그램을 종료하려면 엔터 키를 누르세요...")
     finally:
-        # Immediately wipe decrypted zip from disk when closed
-        if os.path.exists(tmp_zip_path):
+        # Clean sandbox on exit
+        if os.path.exists(sandbox_dir):
             try:
-                os.remove(tmp_zip_path)
+                shutil.rmtree(sandbox_dir, ignore_errors=True)
             except Exception:
                 pass
 
