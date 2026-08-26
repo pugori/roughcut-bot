@@ -1,0 +1,9 @@
+{
+  "version": "3.0.0",
+  "app_name": "ChannelDNA Studio",
+  "release_tag": "v3.0.0",
+  "encrypted_payload": "app.enc",
+  "payload_sha256": "1fb1f5a40e3593320780826745106134d8ab528fdeb4a15e5e9ee0c39d280a48",
+  "zero_cost_hosting": "GitHub Releases CDN",
+  "runtime_execution": "Native Machine Code (.pyd) + AES Encryption"
+}

@@ -93,13 +93,69 @@ async def handle_start_scan(request):
         if not video_path:
             return web.json_response({"success": False, "error": "영상 경로가 지정되지 않았습니다."}, status=400)
 
+        global scan_progress
+        if scan_progress.get("status") == "running" and not scan_progress.get("done", True):
+            return web.json_response({"success": False, "error": "이미 다른 작업이 진행 중입니다."}, status=429)
+
+        scan_progress = {"pct": 0, "status": "running", "step_index": 1, "done": False, "error": ""}
+
+        def _scan_task():
+            from channel_dna.core.pipeline import PipelineFacade
+            
+            try:
+                pipeline = PipelineFacade()
+                
+                def progress_cb(step, pct, msg):
+                    idx = 1
+                    if "자막" in msg or step == "SubtitleInit" or step == "Transcription": idx = 2
+                    elif step == "FCPXML": idx = 3
+                    
+                    scan_progress["step_index"] = idx
+                    scan_progress["pct"] = int(pct * 100)
+                    scan_progress["status"] = msg
+
+                def on_complete(markers, subtitles):
+                    out_dir = BASE_DIR / "output"
+                    out_dir.mkdir(exist_ok=True)
+                    
+                    xml_path = out_dir / f"{Path(video_path).stem}_가편집.xml"
+                    srt_path = out_dir / f"{Path(video_path).stem}_자막.srt"
+                    
+                    with open(xml_path, "w", encoding="utf-8") as f:
+                        f.write(pipeline.exporter.export_fcpxml_v4(video_path, markers))
+                        
+                    if subtitles:
+                        with open(srt_path, "w", encoding="utf-8") as f:
+                            f.write(pipeline.exporter.export_srt(subtitles))
+
+                    scan_progress["pct"] = 100
+                    scan_progress["done"] = True
+                    scan_progress["status"] = "완료"
+
+                def on_error(e):
+                    scan_progress["error"] = str(e)
+                    scan_progress["status"] = "error"
+                
+                pipeline.run_scan_worker(
+                    vod_path=video_path,
+                    channel_name=profile_name,
+                    scan_mode=mode,
+                    progress_cb=progress_cb,
+                    on_complete=on_complete,
+                    on_error=on_error
+                )
+            except Exception as e:
+                scan_progress["error"] = str(e)
+                scan_progress["status"] = "error"
+                
+        import threading
+        threading.Thread(target=_scan_task, daemon=True).start()
+
         return web.json_response({
             "success": True,
-            "message": "가편집 완료",
+            "message": "가편집 시작",
             "video_path": video_path,
             "mode": mode,
-            "xml_file": f"{Path(video_path).stem}_가편집.xml",
-            "srt_file": f"{Path(video_path).stem}_자막.srt",
         })
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -132,6 +188,34 @@ async def handle_get_profiles(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+# Global state for progress
+engine_download_progress = {"pct": 0, "status": "idle"}
+scan_progress = {"pct": 0, "status": "idle", "step_index": 1, "done": False, "error": ""}
+
+async def handle_download_engine(request):
+    """Starts background download of AI Engine (mocked for now)."""
+    global engine_download_progress
+    engine_download_progress = {"pct": 0, "status": "downloading"}
+
+    def _download_task():
+        import time
+        # TODO: Replace with actual HuggingFace zip download logic
+        # url = "https://huggingface.co/datasets/.../AI_Engine.zip"
+        for i in range(1, 11):
+            time.sleep(0.5)
+            engine_download_progress["pct"] = i * 10
+        engine_download_progress["status"] = "done"
+
+    import threading
+    threading.Thread(target=_download_task, daemon=True).start()
+    return web.json_response({"success": True})
+
+async def handle_get_download_progress(request):
+    return web.json_response(engine_download_progress)
+
+async def handle_get_scan_progress(request):
+    return web.json_response(scan_progress)
+
 def create_app():
     app = web.Application()
     app.router.add_get("/", handle_index)
@@ -139,6 +223,9 @@ def create_app():
     app.router.add_post("/api/profiles/create", handle_create_profile)
     app.router.add_delete("/api/profiles/{id}", handle_delete_profile)
     app.router.add_post("/api/scan", handle_start_scan)
+    app.router.add_get("/api/scan/progress", handle_get_scan_progress)
+    app.router.add_post("/api/download_engine", handle_download_engine)
+    app.router.add_get("/api/download_engine/progress", handle_get_download_progress)
     app.router.add_post("/api/open_folder", handle_open_folder)
 
     if UI_DIST_DIR.exists():
@@ -146,43 +233,47 @@ def create_app():
 
     return app
 
-
-def launch_native_app_window(url: str):
-    """Launches an app-mode standalone window using Edge/Chrome, fallback to default browser."""
-    import time
-    time.sleep(1.0)
-    
-    # Check for Edge or Chrome in app mode (no browser address bar/tabs)
-    edge_paths = [
-        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
-        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
-    ]
-    chrome_paths = [
-        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
-    ]
-
-    for p in edge_paths + chrome_paths:
-        if os.path.exists(p):
-            try:
-                subprocess.Popen([p, f"--app={url}", "--window-size=1200,820"])
-                return
-            except Exception:
-                pass
-
-    # Fallback to standard browser
-    webbrowser.open(url)
+def start_server(app, port):
+    import asyncio
+    # aiohttp requires its own event loop in the background thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    web.run_app(app, host="127.0.0.1", port=port, print=None, loop=loop)
 
 
 def main():
-    port = 54321
+    import socket
+    import threading
+    import os
+    import webview
+
+    # 1. 상용 프로그램 수준의 포트 충돌 원천 차단 (동적 여유 포트 할당)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(('127.0.0.1', 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
     app = create_app()
 
-    import threading
-    threading.Thread(target=launch_native_app_window, args=(f"http://127.0.0.1:{port}",), daemon=True).start()
+    # 2. 백그라운드 스레드에서 REST API 서버 구동
+    server_thread = threading.Thread(target=start_server, args=(app, port), daemon=True)
+    server_thread.start()
 
-    web.run_app(app, host="127.0.0.1", port=port, print=None)
+    # 3. 브라우저가 아닌 완벽한 독립 데스크톱 네이티브 윈도우 생성 (상용 프로그램 퀄리티)
+    window = webview.create_window(
+        "ChannelDNA Studio Pro", 
+        f"http://127.0.0.1:{port}", 
+        width=1200, 
+        height=820,
+        resizable=True,
+        text_select=False
+    )
+    
+    # 윈도우가 닫힐 때까지 블로킹 (UI 루프)
+    webview.start()
+
+    # 4. 사용자가 X 버튼을 눌러 창을 닫으면, 숨어있는 모든 좀비 프로세스 완벽 강제 종료
+    os._exit(0)
 
 
 if __name__ == "__main__":

@@ -89,7 +89,43 @@ def fetch_or_load_payload() -> bytes:
         raise FileNotFoundError("암호화 런타임 'app.enc'를 찾을 수 없습니다.")
 
 
+def show_splash_screen():
+    import tkinter as tk
+    root = tk.Tk()
+    root.overrideredirect(True)
+    root.attributes('-topmost', True)
+    
+    window_width = 400
+    window_height = 200
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = int((screen_width / 2) - (window_width / 2))
+    y = int((screen_height / 2) - (window_height / 2))
+    root.geometry(f'{window_width}x{window_height}+{x}+{y}')
+    root.configure(bg='#0f172a')
+    
+    label = tk.Label(root, text="🎬 ChannelDNA Studio\n\n보안 런타임을 불러오는 중입니다...", fg="white", bg="#0f172a", font=("Malgun Gothic", 12, "bold"))
+    label.pack(expand=True)
+    
+    # Store reference so main thread can close it
+    global splash_root
+    splash_root = root
+    
+    # Check periodically if we should close
+    def check_close():
+        if getattr(sys, "CLOSE_SPLASH", False):
+            root.destroy()
+        else:
+            root.after(100, check_close)
+            
+    root.after(100, check_close)
+    root.mainloop()
+
 def launch_in_memory():
+    # Start splash screen in background thread
+    splash_thread = threading.Thread(target=show_splash_screen, daemon=True)
+    splash_thread.start()
+    
     try:
         from cryptography.fernet import Fernet
     except ImportError:
@@ -106,6 +142,7 @@ def launch_in_memory():
         cipher = Fernet(get_master_key())
         decrypted_zip_bytes = cipher.decrypt(enc_data)
     except Exception as e:
+        sys.CLOSE_SPLASH = True
         show_error_dialog("ChannelDNA Studio - 오류", f"보안 런타임 복호화 실패: {e}")
         return
 
@@ -120,10 +157,16 @@ def launch_in_memory():
 
         # 3. Launch Local Web Desktop GUI (Silent background service + Native Window)
         import run_local_gui
+        
+        # Close splash before starting webview (webview needs main thread on Windows)
+        sys.CLOSE_SPLASH = True
+        
         run_local_gui.main()
     except Exception as e:
+        sys.CLOSE_SPLASH = True
         show_error_dialog("ChannelDNA Studio - 오류", f"프로그램 실행 중 오류가 발생했습니다:\n{e}")
     finally:
+        sys.CLOSE_SPLASH = True
         # Clean sandbox on exit
         if os.path.exists(sandbox_dir):
             try:
