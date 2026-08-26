@@ -658,7 +658,10 @@ async def cmd_my_credits(interaction: discord.Interaction):
 
 • **회원 등급:** {vip_badge}
 {free_info}
-• **보유 크레딧 잔액:** `{summary['credits']}개` (1회 가편집 = 1크레딧)
+• **보유 크레딧 잔액:** `{summary['credits']}개`
+
+ℹ️ **크레딧 이용 안내:** 
+영상 길이에 상관없이 **VOD 1개를 가편집할 때마다 1크레딧**이 차감됩니다.
 
 💡 *크레딧 충전이 필요하신 경우 `/크레딧충전` 명령어를 사용해주세요.*"""
     await interaction.response.send_message(msg, ephemeral=True)
@@ -710,10 +713,11 @@ async def cmd_charge_credits(interaction: discord.Interaction, amount: int):
                     payurl = parsed["payurl"]
                     msg = (
                         f"💰 **크레딧 충전 결제 링크가 생성되었습니다!**\n\n"
-                        f"• **충전 크레딧:** {amount}개\n"
+                        f"• **충전 크레딧:** {amount}개 *(처리 가능한 영상 갯수)*\n"
                         f"• **결제 금액:** {price:,}원\n\n"
+                        f"ℹ️ **이용 안내:** 방송 길이에 상관없이 VOD 1개당 1크레딧이 차감됩니다.\n"
                         f"👉 [**여기**]({payurl})를 클릭하여 결제를 진행해 주세요.\n"
-                        f"*결제가 완료되면 봇이 자동으로 확인 후 크레딧을 충전해 드립니다.*"
+                        f"*(결제가 완료되면 봇이 자동으로 확인 후 크레딧을 즉시 충전해 드립니다.)*"
                     )
                     await interaction.followup.send(msg)
                 else:
