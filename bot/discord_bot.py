@@ -188,6 +188,37 @@ async def handle_add_credit(request):
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_payapp_webhook(request):
+    """External Webhook API for PayApp automated payment integration."""
+    try:
+        data = await request.post()
+        state = data.get("state", "")
+        price = data.get("price", "0")
+        discord_user_id = data.get("var1", "")
+        mul_no = data.get("mul_no", "")
+
+        # PayApp state '4' typically means successful payment
+        if state == "4" and discord_user_id.isdigit():
+            # Conversion: 1000 KRW = 1 Credit
+            amount = int(float(price))
+            credits_to_add = amount // 1000
+            
+            if credits_to_add > 0:
+                new_bal = db.add_user_credits(
+                    int(discord_user_id), 
+                    credits_to_add, 
+                    reason=f"PayApp 웹 결제 ({amount}원)", 
+                    order_id=mul_no
+                )
+                print(f"[PayApp] Successfully added {credits_to_add} credits to user {discord_user_id}. Order: {mul_no}")
+        
+        # PayApp requires a simple text response like 'SUCCESS'
+        return web.Response(text="SUCCESS")
+    except Exception as e:
+        print(f"[PayApp Webhook Error] {e}")
+        return web.Response(text="FAIL", status=500)
+
+
 async def start_health_server():
     port = int(os.environ.get("PORT", 10000))
     app = web.Application()
@@ -199,6 +230,7 @@ async def start_health_server():
     app.router.add_post("/api/issue_passcode", handle_issue_passcode)
     app.router.add_post("/api/unbind_streamer", handle_unbind_streamer)
     app.router.add_post("/api/credit/add", handle_add_credit)
+    app.router.add_post("/api/payapp/webhook", handle_payapp_webhook)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -208,8 +240,33 @@ async def start_health_server():
 
 
 # =============================================================================
-# Bot Lifecycle Events
+# Bot Lifecycle Events & Message Queue
 # =============================================================================
+
+import dataclasses
+
+@dataclasses.dataclass
+class OutboundMessage:
+    user_id: int
+    content: str
+    files: list[discord.File]
+
+outbound_queue: asyncio.Queue[OutboundMessage] = asyncio.Queue()
+
+async def outbound_worker():
+    """Processes the outbound message queue sequentially to prevent Discord 429 Rate Limits."""
+    while True:
+        msg = await outbound_queue.get()
+        try:
+            user = await bot.fetch_user(msg.user_id)
+            if user:
+                await user.send(content=msg.content, files=msg.files)
+                print(f"[OK] Successfully delivered package to Discord User: {msg.user_id}")
+        except Exception as e:
+            print(f"[WARN] Failed to deliver package to user {msg.user_id}: {e}")
+        finally:
+            outbound_queue.task_done()
+            await asyncio.sleep(1.5)  # Safe rate limit interval (1.5 seconds)
 
 
 @bot.event
@@ -221,6 +278,9 @@ async def on_ready():
         print(f"[OK] Synced {len(synced)} slash commands globally.")
     except Exception as e:
         print(f"[WARN] Slash command sync warning: {e}")
+
+    # Start the outbound message queue worker
+    bot.loop.create_task(outbound_worker())
 
     if not chzzk_watcher_loop.is_running():
         chzzk_watcher_loop.start()
@@ -920,11 +980,13 @@ async def execute_vod_pipeline_and_deliver(
 4. 생성된 가편집 타임라인 위에 SRT 자막 파일을 드래그하여 배치합니다.
 """
 
-    user = await bot.fetch_user(discord_user_id)
-    if user:
-        await user.send(content=delivery_msg, files=files_to_send)
-        print(f"[OK] Successfully delivered package to Discord User: {discord_user_id}")
-        return True
+    await outbound_queue.put(OutboundMessage(
+        user_id=discord_user_id,
+        content=delivery_msg,
+        files=files_to_send
+    ))
+    print(f"[OK] Queued package delivery to Discord User: {discord_user_id}")
+    return True
 # =============================================================================
 # DM Message Listener (Link Auto-Detection with Deduplication)
 # =============================================================================
