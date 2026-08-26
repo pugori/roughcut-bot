@@ -669,12 +669,25 @@ async def cmd_my_credits(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="크레딧충전",
-    description="가편집 크레딧을 충전하기 위한 페이앱 결제 링크를 생성합니다.",
+    description="가편집 크레딧 요금 안내를 확인하거나 결제 링크를 생성합니다.",
 )
 @app_commands.describe(
-    amount="충전할 크레딧 수량 (1크레딧 = 3,000원)"
+    amount="충전할 수량 (숫자 미입력 시 요금표 안내가 출력됩니다)"
 )
-async def cmd_charge_credits(interaction: discord.Interaction, amount: int):
+async def cmd_charge_credits(interaction: discord.Interaction, amount: int = None):
+    if amount is None:
+        msg = (
+            "💰 **[ChannelDNA 크레딧 요금 안내]**\n\n"
+            "저희 봇은 **영상 길이에 상관없이 무조건 VOD 1개당 1크레딧**이 차감됩니다.\n"
+            "*(1시간 영상도 1크레딧, 12시간 대규모 합방 영상도 똑같이 1크레딧!)*\n\n"
+            "• **결제 단가:** 1크레딧 = 3,000원\n\n"
+            "👉 **충전하는 방법:**\n"
+            "채팅창에 `/크레딧충전 [수량]`을 적고 엔터를 치시면 즉시 결제 링크가 생성됩니다.\n"
+            "*(예시: 10개를 충전하고 싶으시면 `/크레딧충전 10` 입력)*"
+        )
+        await interaction.response.send_message(msg, ephemeral=True)
+        return
+
     if amount < 1:
         await interaction.response.send_message("❌ 최소 1크레딧 이상 충전해야 합니다.", ephemeral=True)
         return
