@@ -1,39 +1,36 @@
-# 🎬 ChannelDNA Studio (v2.0.0)
+# 🎬 ChannelDNA Studio
 
-> **장시간 방송 VOD 자동 가편집 & 화자 분리 XML 생성 솔루션**
+<p align="center">
+  <a href="https://pugori.github.io/roughcut-bot/"><strong>🌐 공식 웹사이트 바로가기</strong></a> •
+  <a href="https://github.com/pugori/roughcut-bot/releases/latest"><strong>📦 최신 버전 다운로드</strong></a>
+</p>
 
-ChannelDNA Studio는 치지직, 트위치, 유튜브 등의 장시간 생방송 다시보기(VOD)를 분석하여 무음 구간을 자동으로 절삭하고, 스트리머와 게스트의 발화를 분리하여 비선형 영상 편집기(Premiere Pro, DaVinci Resolve)용 **Final Cut Pro XML(xmeml v4)** 및 **동기화 SRT 자막**을 생성하는 소프트웨어입니다.
-
----
-
-## 📦 다운로드 및 실행 방법
-
-### 1. 릴리즈 다운로드
-- [GitHub Releases 최신 릴리즈](https://github.com/pugori/roughcut-bot/releases/latest)에서 **`ChannelDNA.exe`** (또는 `app.enc`)를 다운로드합니다.
-
-### 2. 실행 및 가편집 워크스페이스
-1. **`ChannelDNA.exe`** 실행
-2. 편집할 로컬 VOD 영상 파일 선택 (`.mp4`, `.mkv`, `.mov`)
-3. 스트리머 발화 프로필 및 방송 유형(`합방 모드` / `솔로 모드`) 선택
-4. `[가편집 XML 생성 시작]` 클릭 ➔ 완료 후 생성된 타임라인 XML 파일을 비선형 편집기(NLE)로 드래그하여 본편집 진행
+<p align="center">
+  <img src="docs/preview.jpg" alt="ChannelDNA Studio Interface Preview" width="850">
+</p>
 
 ---
 
-## 🌐 공식 웹사이트 및 제품 명세
+## ✨ 주요 기능
 
-- **공식 랜딩 페이지**: [https://pugori.github.io/roughcut-bot/](https://pugori.github.io/roughcut-bot/)
-- **공식 기능 명세서**: [docs/PROJECT_SPECIFICATION.md](docs/PROJECT_SPECIFICATION.md)
-- **시스템 기획 및 설계서**: [docs/SYSTEM_DESIGN_CREDIT_AND_CALIBRATION.md](docs/SYSTEM_DESIGN_CREDIT_AND_CALIBRATION.md)
-
----
-
-## 🔒 보안 및 데이터 처리 원칙
-
-- **인메모리(RAM) 보안 샌드박스**: 본 배포 패키지는 핵심 엔진 코드를 AES-256으로 암호화(`app.enc`)하여 제공하며, 런처 실행 시 하드디스크에 임의의 코드를 기록하지 않고 RAM 상에서만 안전하게 순간 복호화되어 구동됩니다.
-- **100% 로컬 오프라인 연산**: 사용자의 원본 미디어 데이터는 외부 서버로 전송되지 않으며, 사용자 로컬 PC의 하드웨어 자원만을 사용하여 처리됩니다.
+- **✂️ VOD 무음 구간 자동 컷팅**: 긴 생방송 다시보기의 침묵 및 대기 구간을 자동으로 절삭하여 가편집 시퀀스를 생성합니다.
+- **👥 화자 분리 자막 트랙 생성**: 음성 분석을 통해 메인 화자와 게스트 자막을 독립 트랙(V2, V3, V4)으로 자동 분리 배치합니다.
+- **📄 편집기 원클릭 타임라인 연동**: 공개 표준 Final Cut Pro XML(xmeml v4) 및 SRT 자막을 출력하여 Premiere Pro 및 DaVinci Resolve에서 즉시 본편집을 시작할 수 있습니다.
+- **🔒 로컬 보안 샌드박스**: 원본 동영상 파일이 외부로 전송되지 않으며, 사용자 로컬 PC 환경에서 독립적으로 실행됩니다.
 
 ---
 
-## 📄 상표권 및 호환성 고지
+## 🚀 빠른 시작
 
-Adobe®, Adobe Premiere Pro®는 Adobe Inc.의 등록 상표이며, DaVinci Resolve®는 Blackmagic Design Pty. Ltd.의 등록 상표입니다. 본 소프트웨어는 해당 비선형 편집기(NLE)와의 시퀀스 데이터 호환성을 제공하기 위해 공개 표준 Final Cut Pro XML(xmeml v4) 포맷을 지원하는 독립 보조 도구이며, 해당 상표권자와 직접적인 제휴 또는 후원 관계가 없습니다.
+1. [최신 릴리즈](https://github.com/pugori/roughcut-bot/releases/latest)에서 **`ChannelDNA.exe`**를 다운로드합니다.
+2. 실행 후 가편집할 VOD 영상 파일(`.mp4`, `.mkv`, `.mov`)을 선택합니다.
+3. 원하는 방송 모드(**합방 모드** / **솔로 모드**)를 선택하고 **[가편집 시작]**을 클릭합니다.
+4. 생성이 완료된 XML 파일을 영상 편집 프로그램으로 드래그하여 본편집을 진행합니다.
+
+---
+
+<p align="center" style="font-size: 11px; color: #888;">
+  © 2026 ChannelDNA Project. All rights reserved.<br>
+  Adobe®, Premiere Pro®는 Adobe Inc.의 등록 상표이며, DaVinci Resolve®는 Blackmagic Design Pty. Ltd.의 등록 상표입니다.<br>
+  본 소프트웨어는 공개 표준 XML 포맷 호환성을 지원하는 독립 보조 도구입니다.
+</p>
