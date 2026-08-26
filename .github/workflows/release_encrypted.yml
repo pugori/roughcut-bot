@@ -27,20 +27,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install cryptography pyinstaller
-          if (Test-Path "requirements.txt") { pip install -r requirements.txt }
 
-      - name: Build AES-256 Encrypted Payload (app.enc)
-        env:
-          CHANNELDNA_MASTER_KEY: ${{ secrets.CHANNELDNA_MASTER_KEY }}
+      - name: Prepare Release Directory
         run: |
-          python scripts/build_encrypted_release.py
+          New-Item -ItemType Directory -Force -Path "dist_release"
+          Copy-Item -Path "app.enc", "release_manifest.json" -Destination "dist_release" -Force
 
       - name: Build Native Launcher Binary (ChannelDNA.exe)
         run: |
-          pyinstaller --onefile --clean --noconsole --name "ChannelDNA" `
-            --add-data "dist_release/app.enc;." `
+          pyinstaller --onefile --clean --name "ChannelDNA" `
+            --add-data "app.enc;." `
             scripts/launcher.py
-          Move-Item -Path "dist/ChannelDNA.exe" -Destination "dist_release/ChannelDNA.exe"
+          Copy-Item -Path "dist/ChannelDNA.exe" -Destination "dist_release/ChannelDNA.exe" -Force
 
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
