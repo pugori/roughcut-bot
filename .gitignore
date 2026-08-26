@@ -14,6 +14,8 @@ native_src/target/
 
 # ChannelDNA cache & database
 .cache/
+*.db
+channel_dna.db
 export_packages/
 output/
 crash_log.txt
