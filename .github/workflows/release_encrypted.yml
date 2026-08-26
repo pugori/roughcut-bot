@@ -1,0 +1,57 @@
+name: Build & Deploy Encrypted Zero-Cost Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Build Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install cryptography pyinstaller
+          if (Test-Path "requirements.txt") { pip install -r requirements.txt }
+
+      - name: Build AES-256 Encrypted Payload (app.enc)
+        env:
+          CHANNELDNA_MASTER_KEY: ${{ secrets.CHANNELDNA_MASTER_KEY }}
+        run: |
+          python scripts/build_encrypted_release.py
+
+      - name: Build Native Launcher Binary (ChannelDNA.exe)
+        run: |
+          pyinstaller --onefile --clean --noconsole --name "ChannelDNA" `
+            --add-data "dist_release/app.enc;." `
+            scripts/launcher.py
+          Move-Item -Path "dist/ChannelDNA.exe" -Destination "dist_release/ChannelDNA.exe"
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist_release/ChannelDNA.exe
+            dist_release/app.enc
+            dist_release/release_manifest.json
+          name: "ChannelDNA Studio ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

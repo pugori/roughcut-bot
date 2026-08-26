@@ -1,10 +1,12 @@
 """FCP7 XML Exporter for Premiere Pro and DaVinci Resolve with 60fps Selects Sequence."""
 
+import re
 import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from channel_dna.core.models import ScanMarker
+from channel_dna.core.subtitle_formatter import SubtitleItem
 
 
 def get_marker_color(reason: str, peak: float) -> str:
@@ -73,6 +75,58 @@ class PremiereXmlExporter:
         ET.SubElement(ach2, "sourcechannel").text = "2"
         return file_node
 
+    def _create_text_clipitem(
+        self,
+        parent_track: ET.Element,
+        clip_id: str,
+        text: str,
+        start_frame: int,
+        end_frame: int,
+        timebase: int,
+        is_ntsc: str,
+        total_frames: int,
+        font_size: int = 48,
+    ) -> ET.Element:
+        """Creates a standard FCP7 Text/Title Generator clipitem compatible with Premiere Pro & DaVinci Resolve."""
+        dur_f = max(1, end_frame - start_frame)
+        clipitem = ET.SubElement(parent_track, "clipitem", id=clip_id)
+        clip_name = text.replace("\n", " ").strip()
+        if len(clip_name) > 30:
+            clip_name = clip_name[:27] + "..."
+        ET.SubElement(clipitem, "name").text = clip_name or "Subtitle"
+        ET.SubElement(clipitem, "duration").text = str(total_frames)
+        rate = ET.SubElement(clipitem, "rate")
+        ET.SubElement(rate, "timebase").text = str(timebase)
+        ET.SubElement(rate, "ntsc").text = is_ntsc
+        ET.SubElement(clipitem, "start").text = str(start_frame)
+        ET.SubElement(clipitem, "end").text = str(end_frame)
+        ET.SubElement(clipitem, "in").text = "0"
+        ET.SubElement(clipitem, "out").text = str(dur_f)
+
+        effect = ET.SubElement(clipitem, "effect")
+        ET.SubElement(effect, "name").text = "Text"
+        ET.SubElement(effect, "effectid").text = "Text"
+        ET.SubElement(effect, "effectcategory").text = "Text"
+        ET.SubElement(effect, "effecttype").text = "generator"
+        ET.SubElement(effect, "mediatype").text = "video"
+
+        p_str = ET.SubElement(effect, "parameter")
+        ET.SubElement(p_str, "parameterid").text = "str"
+        ET.SubElement(p_str, "name").text = "Text"
+        ET.SubElement(p_str, "value").text = text
+
+        p_font = ET.SubElement(effect, "parameter")
+        ET.SubElement(p_font, "parameterid").text = "font"
+        ET.SubElement(p_font, "name").text = "Font"
+        ET.SubElement(p_font, "value").text = "Arial"
+
+        p_size = ET.SubElement(effect, "parameter")
+        ET.SubElement(p_size, "parameterid").text = "fontsize"
+        ET.SubElement(p_size, "name").text = "Size"
+        ET.SubElement(p_size, "value").text = str(font_size)
+
+        return clipitem
+
     def export(
         self,
         markers: list[ScanMarker],
@@ -81,6 +135,8 @@ class PremiereXmlExporter:
         fps: float = 60.0,
         export_format: str = "xml",
         video_file_name: str | None = None,
+        subtitles: list[SubtitleItem] | None = None,
+        profile_type: str = "solo",
     ) -> Path:
         out_file = Path(output_path)
         out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +176,6 @@ class PremiereXmlExporter:
         # 2. Build standard RFC-compliant file://localhost/C:/... absolute URI
         target_video_file = (out_file.parent / vod_name).resolve()
         posix_path = target_video_file.as_posix()
-        # Ensure proper file://localhost/C:/... URI format for Premiere & DaVinci on Windows/Mac
         path_url_val = f"file://localhost/{urllib.parse.quote(posix_path, safe=':/')}"
 
         is_ntsc = "FALSE"
@@ -168,7 +223,7 @@ class PremiereXmlExporter:
         ET.SubElement(seq_r_rate, "ntsc").text = is_ntsc
         seq_r_media = ET.SubElement(seq_rough, "media")
 
-        # Video Media Track
+        # Video Media Track Setup
         v_media_r = ET.SubElement(seq_r_media, "video")
         v_format_r = ET.SubElement(v_media_r, "format")
         v_sc_r = ET.SubElement(v_format_r, "samplecharacteristics")
@@ -177,7 +232,21 @@ class PremiereXmlExporter:
         ET.SubElement(v_sc_r_rate, "ntsc").text = is_ntsc
         ET.SubElement(v_sc_r, "width").text = "1920"
         ET.SubElement(v_sc_r, "height").text = "1080"
-        v_track_r = ET.SubElement(v_media_r, "track")
+
+        # V1: Video Cut Track
+        v1_track_r = ET.SubElement(v_media_r, "track")
+
+        # V2, V3, V4: Subtitle Video Tracks
+        v2_track_r = None
+        v3_track_r = None
+        v4_track_r = None
+        is_collab = profile_type == "collab" or "_Collab" in clean_stem
+
+        if subtitles:
+            v2_track_r = ET.SubElement(v_media_r, "track")
+            if is_collab:
+                v3_track_r = ET.SubElement(v_media_r, "track")
+                v4_track_r = ET.SubElement(v_media_r, "track")
 
         # Audio Media Tracks
         a_media_r = ET.SubElement(seq_r_media, "audio")
@@ -191,8 +260,8 @@ class PremiereXmlExporter:
             out_f = int(round(m.end_time * fps))
             dur_f = max(1, out_f - in_f)
 
-            # Video Clipitem
-            v_clip_r = ET.SubElement(v_track_r, "clipitem", id=f"clip-r-v-{i}")
+            # Video Clipitem (V1)
+            v_clip_r = ET.SubElement(v1_track_r, "clipitem", id=f"clip-r-v-{i}")
             ET.SubElement(
                 v_clip_r, "name"
             ).text = f"Cut {i:02d} (Peak {m.peak_tension:.1f})"
@@ -301,6 +370,45 @@ class PremiereXmlExporter:
 
             current_timeline_frame += dur_f
 
+        # Populate Subtitle Tracks (V2: Streamer/Speaker1, V3: Speaker2, V4: Speaker3/Donation)
+        if subtitles:
+            for s_idx, s in enumerate(subtitles, 1):
+                s_st_frame = max(0, int(round(s.start_time * fps)))
+                s_et_frame = min(current_timeline_frame, int(round(s.end_time * fps)))
+                if s_et_frame <= s_st_frame:
+                    s_et_frame = min(current_timeline_frame, s_st_frame + max(1, int(round(0.4 * fps))))
+                if s_et_frame <= s_st_frame:
+                    continue
+
+                raw_text = s.text.strip()
+                clean_text = re.sub(r"^\[(화자 \d|도네)\]\s*", "", raw_text).strip()
+                if not clean_text:
+                    clean_text = raw_text
+
+                # Speaker track routing
+                target_track = v2_track_r
+                track_label = "v2"
+
+                if is_collab:
+                    if "[화자 2]" in raw_text or "🗣️ [화자 2]" in raw_text:
+                        target_track = v3_track_r if v3_track_r is not None else v2_track_r
+                        track_label = "v3"
+                    elif "[도네]" in raw_text or "[화자 3]" in raw_text:
+                        target_track = v4_track_r if v4_track_r is not None else v2_track_r
+                        track_label = "v4"
+
+                if target_track is not None:
+                    self._create_text_clipitem(
+                        parent_track=target_track,
+                        clip_id=f"clip-sub-{track_label}-{s_idx}",
+                        text=clean_text,
+                        start_frame=s_st_frame,
+                        end_frame=s_et_frame,
+                        timebase=timebase,
+                        is_ntsc=is_ntsc,
+                        total_frames=total_frames,
+                    )
+
         ET.SubElement(seq_rough, "duration").text = str(current_timeline_frame)
 
         # Write XML with XML declaration
@@ -308,3 +416,4 @@ class PremiereXmlExporter:
         ET.indent(tree, space="  ", level=0)
         tree.write(str(out_file), encoding="utf-8", xml_declaration=True)
         return out_file
+

@@ -125,6 +125,55 @@ class DBManager:
             conn.execute("ALTER TABLE streamer_bindings ADD COLUMN target_dna_profile TEXT DEFAULT '';")
         except Exception:
             pass
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                profile_id TEXT PRIMARY KEY,
+                discord_user_id INTEGER NOT NULL,
+                profile_name TEXT NOT NULL,
+                chzzk_channel_url TEXT DEFAULT '',
+                solo_profile_json TEXT NOT NULL,
+                collab_profile_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_credits (
+                discord_user_id INTEGER PRIMARY KEY,
+                credits INTEGER NOT NULL DEFAULT 0,
+                total_charged INTEGER NOT NULL DEFAULT 0,
+                total_used INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_user_id INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                balance_after INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                order_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_usage_logs (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_user_id INTEGER NOT NULL,
+                usage_date TEXT NOT NULL,
+                is_free_quota INTEGER NOT NULL,
+                video_no TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_profiles_uid ON user_profiles(discord_user_id);"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daily_usage_uid_date ON daily_usage_logs(discord_user_id, usage_date);"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_name);"
         )
@@ -724,4 +773,238 @@ class DBManager:
                 (clean, clean),
             )
             return cur.rowcount > 0
+
+    # =========================================================================
+    # User Profile Sandbox (Private Isolated Storage - Anti-Copyright Claim)
+    # =========================================================================
+
+    def save_user_profile(
+        self,
+        discord_user_id: int,
+        profile_name: str,
+        solo_profile: dict[str, Any],
+        collab_profile: dict[str, Any],
+        chzzk_channel_url: str = "",
+        profile_id: str | None = None,
+    ) -> str:
+        """Saves or updates a user's isolated 3+3 calibrated profile (Private Sandbox)."""
+        pid = profile_id or f"prof_{uuid.uuid4().hex[:12]}"
+        solo_json = json.dumps(solo_profile, ensure_ascii=False)
+        collab_json = json.dumps(collab_profile, ensure_ascii=False)
+        with self._session() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_profiles (profile_id, discord_user_id, profile_name, chzzk_channel_url, solo_profile_json, collab_profile_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(profile_id) DO UPDATE SET
+                    profile_name = excluded.profile_name,
+                    chzzk_channel_url = excluded.chzzk_channel_url,
+                    solo_profile_json = excluded.solo_profile_json,
+                    collab_profile_json = excluded.collab_profile_json,
+                    updated_at = CURRENT_TIMESTAMP;
+                """,
+                (pid, discord_user_id, profile_name.strip(), chzzk_channel_url.strip(), solo_json, collab_json),
+            )
+        return pid
+
+    def get_user_profiles(self, discord_user_id: int) -> list[dict[str, Any]]:
+        """Retrieves all isolated profiles registered by a specific user."""
+        with self._session() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT profile_id, discord_user_id, profile_name, chzzk_channel_url, solo_profile_json, collab_profile_json, created_at, updated_at
+                FROM user_profiles
+                WHERE discord_user_id = ?
+                ORDER BY updated_at DESC;
+                """,
+                (discord_user_id,),
+            )
+            rows = cur.fetchall()
+            results = []
+            for r in rows:
+                item = dict(r)
+                try:
+                    item["solo_profile"] = json.loads(item["solo_profile_json"])
+                except Exception:
+                    item["solo_profile"] = {}
+                try:
+                    item["collab_profile"] = json.loads(item["collab_profile_json"])
+                except Exception:
+                    item["collab_profile"] = {}
+                results.append(item)
+            return results
+
+    def get_user_profile(self, profile_id: str) -> dict[str, Any] | None:
+        """Retrieves a single isolated profile by profile_id."""
+        with self._session() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT profile_id, discord_user_id, profile_name, chzzk_channel_url, solo_profile_json, collab_profile_json, created_at, updated_at
+                FROM user_profiles
+                WHERE profile_id = ?;
+                """,
+                (profile_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            item = dict(row)
+            try:
+                item["solo_profile"] = json.loads(item["solo_profile_json"])
+            except Exception:
+                item["solo_profile"] = {}
+            try:
+                item["collab_profile"] = json.loads(item["collab_profile_json"])
+            except Exception:
+                item["collab_profile"] = {}
+            return item
+
+    def delete_user_profile(self, profile_id: str, discord_user_id: int | None = None) -> bool:
+        """Deletes an isolated profile (with optional owner verification)."""
+        with self._session() as conn:
+            if discord_user_id is not None:
+                cur = conn.execute(
+                    "DELETE FROM user_profiles WHERE profile_id = ? AND discord_user_id = ?;",
+                    (profile_id, discord_user_id),
+                )
+            else:
+                cur = conn.execute("DELETE FROM user_profiles WHERE profile_id = ?;", (profile_id,))
+            return cur.rowcount > 0
+
+    # =========================================================================
+    # Credit & Usage Tracking Engine
+    # =========================================================================
+
+    def get_user_credits(self, discord_user_id: int) -> int:
+        """Returns the current credit balance of a user."""
+        with self._session() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT credits FROM user_credits WHERE discord_user_id = ?;",
+                (discord_user_id,),
+            )
+            row = cur.fetchone()
+            return row["credits"] if row else 0
+
+    def add_user_credits(
+        self,
+        discord_user_id: int,
+        amount: int,
+        reason: str = "수동 충전",
+        order_id: str = "",
+    ) -> int:
+        """Adds credits to a user and logs transaction. Returns new balance."""
+        with self._session() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO user_credits (discord_user_id, credits, total_charged, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(discord_user_id) DO UPDATE SET
+                    credits = credits + excluded.credits,
+                    total_charged = total_charged + excluded.credits,
+                    updated_at = CURRENT_TIMESTAMP;
+                """,
+                (discord_user_id, amount, max(0, amount)),
+            )
+            cur.execute(
+                "SELECT credits FROM user_credits WHERE discord_user_id = ?;",
+                (discord_user_id,),
+            )
+            new_bal = cur.fetchone()["credits"]
+            conn.execute(
+                """
+                INSERT INTO credit_transactions (discord_user_id, amount, balance_after, reason, order_id)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (discord_user_id, amount, new_bal, reason, order_id),
+            )
+            return new_bal
+
+    def deduct_user_credit(
+        self,
+        discord_user_id: int,
+        reason: str = "가편집 분석",
+        order_id: str = "",
+    ) -> tuple[bool, int]:
+        """Deducts 1 credit from a user. Returns (success, remaining_credits)."""
+        with self._session() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT credits FROM user_credits WHERE discord_user_id = ?;",
+                (discord_user_id,),
+            )
+            row = cur.fetchone()
+            current = row["credits"] if row else 0
+            if current < 1:
+                return False, current
+            
+            new_bal = current - 1
+            conn.execute(
+                """
+                UPDATE user_credits
+                SET credits = ?, total_used = total_used + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE discord_user_id = ?;
+                """,
+                (new_bal, discord_user_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO credit_transactions (discord_user_id, amount, balance_after, reason, order_id)
+                VALUES (?, -1, ?, ?, ?);
+                """,
+                (discord_user_id, new_bal, reason, order_id),
+            )
+            return True, new_bal
+
+    def get_daily_free_usage_count(self, discord_user_id: int, usage_date: str) -> int:
+        """Returns the number of free quota uses for the given date (YYYY-MM-DD)."""
+        with self._session() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT COUNT(*) as cnt
+                FROM daily_usage_logs
+                WHERE discord_user_id = ? AND usage_date = ? AND is_free_quota = 1;
+                """,
+                (discord_user_id, usage_date),
+            )
+            row = cur.fetchone()
+            return row["cnt"] if row else 0
+
+    def record_daily_usage(
+        self,
+        discord_user_id: int,
+        is_free_quota: bool,
+        video_no: str = "",
+        usage_date: str | None = None,
+    ):
+        """Records a VOD execution in daily usage logs."""
+        from datetime import datetime, timezone
+        d_str = usage_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._session() as conn:
+            conn.execute(
+                """
+                INSERT INTO daily_usage_logs (discord_user_id, usage_date, is_free_quota, video_no)
+                VALUES (?, ?, ?, ?);
+                """,
+                (discord_user_id, d_str, 1 if is_free_quota else 0, video_no),
+            )
+
+    def get_user_credit_summary(self, discord_user_id: int, today_str: str) -> dict[str, Any]:
+        """Provides a complete summary of VIP status, daily free quota, and credit balance."""
+        is_vip = self.get_binding_by_discord_user_id(discord_user_id) is not None
+        free_used = self.get_daily_free_usage_count(discord_user_id, today_str) if is_vip else 0
+        free_remaining = max(0, 2 - free_used) if is_vip else 0
+        credits = self.get_user_credits(discord_user_id)
+        return {
+            "discord_user_id": discord_user_id,
+            "is_vip": is_vip,
+            "free_used_today": free_used,
+            "free_remaining_today": free_remaining,
+            "credits": credits,
+        }
+
 

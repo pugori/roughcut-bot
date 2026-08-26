@@ -160,6 +160,31 @@ async def handle_list_profiles(request):
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_add_credit(request):
+    """External Webhook API for automated credit charging upon web payment."""
+    try:
+        data = await request.json()
+        secret = data.get("secret_key", "")
+        if secret != ADMIN_SECRET_KEY:
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+        user_id = data.get("discord_user_id")
+        amount = data.get("amount", 0)
+        order_id = data.get("order_id", "")
+        reason = data.get("reason", "웹 결제 충전")
+
+        if not user_id or amount <= 0:
+            return web.json_response({"success": False, "error": "Invalid user_id or amount"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        new_bal = db.add_user_credits(int(user_id), int(amount), reason=reason, order_id=order_id)
+        return web.json_response(
+            {"success": True, "discord_user_id": user_id, "added_credits": amount, "current_balance": new_bal},
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 async def start_health_server():
     port = int(os.environ.get("PORT", 10000))
     app = web.Application()
@@ -170,6 +195,7 @@ async def start_health_server():
     app.router.add_post("/api/sync_profile", handle_sync_profile)
     app.router.add_post("/api/issue_passcode", handle_issue_passcode)
     app.router.add_post("/api/unbind_streamer", handle_unbind_streamer)
+    app.router.add_post("/api/credit/add", handle_add_credit)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -208,10 +234,16 @@ async def on_ready():
 # =============================================================================
 
 
+# =============================================================================
+# Admin Slash Commands (Restricted & Hidden from Regular Users)
+# =============================================================================
+
+
 @bot.tree.command(
     name="현황",
     description="[관리자] 현재 등록된 스트리머 모니터링 및 인증 바인딩 현황을 조회합니다.",
 )
+@app_commands.default_permissions(administrator=True)
 async def cmd_status(interaction: discord.Interaction):
     if config.ADMIN_USER_ID != 0 and interaction.user.id != config.ADMIN_USER_ID:
         await interaction.response.send_message(
@@ -245,6 +277,7 @@ async def cmd_status(interaction: discord.Interaction):
     name="해지",
     description="[관리자] 특정 스트리머의 모니터링 및 파일 자동 전송을 해지합니다.",
 )
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(스트리머="해지할 스트리머 이름 또는 채널 ID")
 async def cmd_unbind(interaction: discord.Interaction, 스트리머: str):
     if config.ADMIN_USER_ID != 0 and interaction.user.id != config.ADMIN_USER_ID:
@@ -262,6 +295,365 @@ async def cmd_unbind(interaction: discord.Interaction, 스트리머: str):
         await interaction.response.send_message(
             f"❌ [{스트리머}] 대상을 찾을 수 없습니다.", ephemeral=True
         )
+
+
+@bot.tree.command(
+    name="크레딧지급",
+    description="[관리자] 특정 사용자에게 가편집 크레딧을 수동 지급합니다.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(대상유저="크레딧을 지급할 디스코드 유저", 수량="지급할 크레딧 수량", 사유="지급 사유")
+async def cmd_give_credit(interaction: discord.Interaction, 대상유저: discord.User, 수량: int, 사유: str = "관리자 수동 지급"):
+    if config.ADMIN_USER_ID != 0 and interaction.user.id != config.ADMIN_USER_ID:
+        await interaction.response.send_message("❌ 관리자만 실행할 수 있는 명령어입니다.", ephemeral=True)
+        return
+    if 수량 <= 0:
+        await interaction.response.send_message("❌ 수량은 1 이상이어야 합니다.", ephemeral=True)
+        return
+
+    new_bal = db.add_user_credits(대상유저.id, 수량, reason=사유)
+    await interaction.response.send_message(
+        f"✅ **[{대상유저.display_name}]** 님에게 `{수량}` 크레딧 지급 완료! (현재 잔액: `{new_bal}`개)",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(
+    name="크레딧차감",
+    description="[관리자] 특정 사용자의 가편집 크레딧을 수동 차감합니다.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(대상유저="크레딧을 차감할 디스코드 유저", 수량="차감할 크레딧 수량", 사유="차감 사유")
+async def cmd_deduct_credit(interaction: discord.Interaction, 대상유저: discord.User, 수량: int, 사유: str = "관리자 수동 차감"):
+    if config.ADMIN_USER_ID != 0 and interaction.user.id != config.ADMIN_USER_ID:
+        await interaction.response.send_message("❌ 관리자만 실행할 수 있는 명령어입니다.", ephemeral=True)
+        return
+    if 수량 <= 0:
+        await interaction.response.send_message("❌ 수량은 1 이상이어야 합니다.", ephemeral=True)
+        return
+
+    success, new_bal = db.deduct_user_credit(대상유저.id, reason=사유)
+    if not success:
+        await interaction.response.send_message(f"❌ 잔액이 부족합니다. (현재 잔액: `{new_bal}`개)", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        f"✅ **[{대상유저.display_name}]** 님의 크레딧 1개 차감 완료! (현재 잔액: `{new_bal}`개)",
+        ephemeral=True,
+    )
+
+
+# =============================================================================
+# Modal for 3+3 YouTube Profile Calibration
+# =============================================================================
+
+
+class ProfileRegistrationModal(discord.ui.Modal, title="새 스트리머 발화 프로필 등록 (3+3 분석)"):
+    profile_name_input = discord.ui.TextInput(
+        label="프로필 이름 (식별용 라벨)",
+        placeholder="예: 하이텐션 게임 방송 스타일, 잔잔 토크 스타일",
+        max_length=50,
+        required=True,
+    )
+    chzzk_url_input = discord.ui.TextInput(
+        label="치지직 채널 주소 (선택 입력)",
+        placeholder="https://chzzk.naver.com/...",
+        required=False,
+    )
+    solo_links_input = discord.ui.TextInput(
+        label="🎤 솔로 방송 유튜브 링크 3개 (줄바꿈 구분)",
+        style=discord.TextStyle.paragraph,
+        placeholder="https://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=...",
+        required=True,
+    )
+    collab_links_input = discord.ui.TextInput(
+        label="👥 합방/콜라보 유튜브 링크 3개 (줄바꿈 구분)",
+        style=discord.TextStyle.paragraph,
+        placeholder="https://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=...",
+        required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        p_name = self.profile_name_input.value.strip()
+        ch_url = self.chzzk_url_input.value.strip()
+        solo_urls = [u.strip() for u in self.solo_links_input.value.split("\n") if u.strip()]
+        collab_urls = [u.strip() for u in self.collab_links_input.value.split("\n") if u.strip()]
+
+        from channel_dna.core.profiler import ChannelProfiler
+        profiler = ChannelProfiler(db=db)
+        res = profiler.calibrate_from_video_urls(
+            solo_urls=solo_urls,
+            collab_urls=collab_urls,
+            profile_name=p_name,
+            chzzk_channel_url=ch_url,
+            discord_user_id=interaction.user.id,
+        )
+
+        await interaction.followup.send(
+            f"✅ **발화 프로필 등록 완료!**\n"
+            f"• **프로필 이름:** `{p_name}`\n"
+            f"• **솔로 ASL:** `{res['solo_profile']['avg_shot_length']}s` / 무음 기준: `{res['solo_profile']['silence_tolerance']}s`\n"
+            f"• **합방 ASL:** `{res['collab_profile']['avg_shot_length']}s` / 무음 기준: `{res['collab_profile']['silence_tolerance']}s`\n"
+            f"*(입력하신 6개 유튜브 링크는 음향 특성 산출 후 즉시 폐기되었습니다)*\n\n"
+            f"👉 이제 `/가편집` 명령어를 실행할 때 해당 프로필을 선택하여 가편집을 진행하실 수 있습니다.",
+            ephemeral=True,
+        )
+
+
+# =============================================================================
+# 2-Step Interaction: Profile Dropdown + Mode Selection View
+# =============================================================================
+
+
+class ProfileSelectDropdown(discord.ui.Select):
+    def __init__(self, profiles: list[dict[str, Any]], parent_view: Any):
+        self.parent_view = parent_view
+        options = [
+            discord.SelectOption(
+                label=p["profile_name"][:100],
+                value=p["profile_id"],
+                description=f"솔로 ASL {p.get('solo_profile', {}).get('avg_shot_length', 3.8)}s / 합방 ASL {p.get('collab_profile', {}).get('avg_shot_length', 2.2)}s",
+            )
+            for p in profiles[:25]
+        ]
+        super().__init__(placeholder="🎯 적용할 스트리머 발화 프로필을 선택하세요", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.parent_view.discord_user_id:
+            await interaction.response.send_message("❌ 본인의 요청에서만 선택할 수 있습니다.", ephemeral=True)
+            return
+
+        self.parent_view.selected_profile_id = self.values[0]
+        selected_prof = db.get_user_profile(self.values[0])
+        p_name = selected_prof["profile_name"] if selected_prof else "선택된 프로필"
+
+        # Enable mode buttons
+        self.parent_view.solo_btn.disabled = False
+        self.parent_view.collab_btn.disabled = False
+
+        await interaction.response.edit_message(
+            content=f"🎯 **[프로필 선택 완료]** `{p_name}`\n\n"
+                    "아래에서 방송 유형(모드)을 선택해 주시면 가편집이 시작됩니다:",
+            view=self.parent_view,
+        )
+
+
+class ProfileAndModeSelectionView(discord.ui.View):
+    def __init__(
+        self,
+        vod_url_or_no: str,
+        discord_user_id: int,
+        profiles: list[dict[str, Any]],
+        video_title: str = "치지직 다시보기",
+    ):
+        super().__init__(timeout=300)
+        self.vod_url_or_no = vod_url_or_no
+        self.discord_user_id = discord_user_id
+        self.profiles = profiles
+        self.video_title = video_title
+        self.video_no = extract_chzzk_video_no(vod_url_or_no) or vod_url_or_no
+        self.selected_profile_id = profiles[0]["profile_id"] if profiles else ""
+
+        # Step 1: Add profile dropdown
+        self.dropdown = ProfileSelectDropdown(profiles, self)
+        self.add_item(self.dropdown)
+
+        # Step 2: Buttons
+        self.solo_btn = discord.ui.Button(label="🎤 솔로 방송 모드", style=discord.ButtonStyle.primary, custom_id="btn_solo_exec", disabled=False)
+        self.collab_btn = discord.ui.Button(label="👥 합방 / 콜라보 모드", style=discord.ButtonStyle.success, custom_id="btn_collab_exec", disabled=False)
+
+        self.solo_btn.callback = self._on_solo_click
+        self.collab_btn.callback = self._on_collab_click
+
+        self.add_item(self.solo_btn)
+        self.add_item(self.collab_btn)
+
+    async def _on_solo_click(self, interaction: discord.Interaction):
+        await self._execute(interaction, "solo", "솔로 방송 모드")
+
+    async def _on_collab_click(self, interaction: discord.Interaction):
+        await self._execute(interaction, "collab", "합방 / 콜라보 모드")
+
+    async def _execute(self, interaction: discord.Interaction, mode: str, mode_kr: str):
+        if interaction.user.id != self.discord_user_id:
+            await interaction.response.send_message("❌ 본인의 요청에서만 실행할 수 있습니다.", ephemeral=True)
+            return
+
+        # Quota and Credit Verification Pipeline
+        today_str = datetime.date.today().isoformat()
+        summary = db.get_user_credit_summary(self.discord_user_id, today_str)
+
+        is_free = False
+        if summary["is_vip"] and summary["free_remaining_today"] > 0:
+            is_free = True
+            db.record_daily_usage(self.discord_user_id, is_free_quota=True, video_no=self.video_no)
+        else:
+            # Must consume 1 credit
+            ok, rem = db.deduct_user_credit(self.discord_user_id, reason=f"가편집 VOD: {self.video_no}")
+            if not ok:
+                await interaction.response.send_message(
+                    f"⚠️ **[크레딧 부족 안내]**\n"
+                    f"가편집을 진행하기 위한 크레딧이 부족합니다. (보유 잔액: `{rem}`개)\n"
+                    f"• 1일 무료 2회 슬롯을 모두 소진하셨거나 일반 회원 상태입니다.\n"
+                    f"• 잔액 확인: `/크레딧`\n"
+                    f"• 충전 문의: 관리자에게 문의해 주세요.",
+                    ephemeral=True,
+                )
+                return
+            db.record_daily_usage(self.discord_user_id, is_free_quota=False, video_no=self.video_no)
+
+        # Disable view items
+        for item in self.children:
+            item.disabled = True
+
+        prof = db.get_user_profile(self.selected_profile_id)
+        p_name = prof["profile_name"] if prof else "기본 프로필"
+
+        await interaction.response.edit_message(
+            content=f"🚀 **[{mode_kr}] 가편집 연산이 시작되었습니다!**\n"
+                    f"• 적용 프로필: `{p_name}`\n"
+                    f"• 소모 내역: {'🎁 당일 무료 슬롯 (1회)' if is_free else '⚡ 1 크레딧 차감'}\n"
+                    f"• 완료 시 이곳으로 XML/SRT 가편집 패키지가 자동 전송됩니다.",
+            view=self,
+        )
+
+        # Launch background task
+        asyncio.create_task(
+            execute_vod_pipeline_and_deliver(
+                vod_url_or_no=self.vod_url_or_no,
+                streamer_name=p_name,
+                target_dna_profile=p_name,
+                discord_user_id=self.discord_user_id,
+                status_channel=interaction.channel,
+                selected_mode=mode,
+            )
+        )
+
+
+# =============================================================================
+# User Slash Commands
+# =============================================================================
+
+
+@bot.tree.command(
+    name="프로필등록",
+    description="3편의 솔로 영상과 3편의 합방 유튜브 링크를 분석하여 개인 전용 발화 프로필을 생성합니다.",
+)
+async def cmd_register_profile(interaction: discord.Interaction):
+    modal = ProfileRegistrationModal()
+    await interaction.response.send_modal(modal)
+
+
+@bot.tree.command(
+    name="내프로필",
+    description="본인이 등록한 발화 프로필 목록을 조회하고 관리합니다.",
+)
+async def cmd_my_profiles(interaction: discord.Interaction):
+    profiles = db.get_user_profiles(interaction.user.id)
+    if not profiles:
+        await interaction.response.send_message(
+            "⚠️ 등록된 발화 프로필이 없습니다. 먼저 `/프로필등록` 명령어로 프로필을 생성해 주세요.",
+            ephemeral=True,
+        )
+        return
+
+    lines = ["📋 **[내 등록 발화 프로필 목록]** (오직 본인 계정에만 비공개 격리 보관)"]
+    for i, p in enumerate(profiles, start=1):
+        s_asl = p.get("solo_profile", {}).get("avg_shot_length", 3.8)
+        c_asl = p.get("collab_profile", {}).get("avg_shot_length", 2.2)
+        lines.append(f"**{i}. {p['profile_name']}** (ID: `{p['profile_id']}`)\n   • 솔로 ASL: `{s_asl}s` | 합방 ASL: `{c_asl}s`")
+
+    lines.append("\n👉 프로필 삭제를 원하시면 `/프로필삭제 [프로필ID]` 명령어를 이용해 주세요.")
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@bot.tree.command(
+    name="프로필삭제",
+    description="등록한 특정 발화 프로필을 삭제합니다.",
+)
+@app_commands.describe(프로필id="삭제할 프로필의 ID (예: prof_abc123)")
+async def cmd_delete_profile(interaction: discord.Interaction, 프로필id: str):
+    success = db.delete_user_profile(프로필id.strip(), discord_user_id=interaction.user.id)
+    if success:
+        await interaction.response.send_message(f"✅ 프로필(`{프로필id}`)이 정상적으로 삭제되었습니다.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"❌ 해당 프로필을 찾을 수 없거나 삭제 권한이 없습니다.", ephemeral=True)
+
+
+@bot.tree.command(
+    name="크레딧",
+    description="본인의 회원 등급, 오늘 남은 무료 가편집 횟수, 크레딧 잔액을 확인합니다.",
+)
+async def cmd_my_credits(interaction: discord.Interaction):
+    today_str = datetime.date.today().isoformat()
+    summary = db.get_user_credit_summary(interaction.user.id, today_str)
+
+    vip_badge = "👑 VIP 스트리머 (1일 2회 무료 제공)" if summary["is_vip"] else "👤 일반 크리에이터"
+    free_info = f"• **오늘 남은 무료 가편집:** `{summary['free_remaining_today']} / 2회`" if summary["is_vip"] else "• **일일 무료 혜택:** 일반 회원 (크레딧 전용)"
+
+    msg = f"""💳 **[ChannelDNA 크레딧 및 계정 현황]**
+
+• **회원 등급:** {vip_badge}
+{free_info}
+• **보유 크레딧 잔액:** `{summary['credits']}개` (1회 가편집 = 1크레딧)
+
+💡 *크레딧 충전이 필요하신 경우 웹 결제 사이트 또는 관리자에게 문의해 주세요.*"""
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+@bot.tree.command(
+    name="가편집",
+    description="치지직 VOD 링크를 입력하여 등록된 프로필 및 모드를 선택하고 가편집 XML을 생성합니다.",
+)
+@app_commands.describe(치지직_링크="치지직 다시보기 영상 링크 (예: https://chzzk.naver.com/video/1049281)")
+async def cmd_manual_roughcut(interaction: discord.Interaction, 치지직_링크: str):
+    user_id = interaction.user.id
+    profiles = db.get_user_profiles(user_id)
+
+    if not profiles:
+        await interaction.response.send_message(
+            "⚠️ **[스트리머 발화 프로필 미등록 안내]**\n\n"
+            "등록된 발화 프로필이 없습니다.\n"
+            "임의의 프로필로 가편집을 진행하면 컷팅 품질이 떨어지고 자막 싱크가 어긋날 수 있습니다.\n\n"
+            "먼저 아래 명령어로 프로필을 1회 등록해 주세요:\n"
+            "👉 `/프로필등록`",
+            ephemeral=True,
+        )
+        return
+
+    v_no = extract_chzzk_video_no(치지직_링크)
+    if not v_no:
+        await interaction.response.send_message("❌ 올바른 치지직 다시보기 영상 링크를 입력해 주세요.", ephemeral=True)
+        return
+
+    meta = fetch_chzzk_video_meta(v_no)
+    v_title = meta.get("title") if meta else "치지직 다시보기"
+    v_url = f"https://chzzk.naver.com/video/{v_no}"
+
+    view = ProfileAndModeSelectionView(
+        vod_url_or_no=v_url,
+        discord_user_id=user_id,
+        profiles=profiles,
+        video_title=v_title,
+    )
+
+    notice_text = (
+        f"🎬 **[VOD 자동 가편집 요청]**\n"
+        f"• **방송 제목:** {v_title}\n"
+        f"• **영상 링크:** `{v_url}`\n\n"
+        f"적용할 **스트리머 발화 프로필**을 선택한 뒤 **솔로/합방 모드**를 클릭해 주세요:"
+    )
+    await interaction.response.send_message(notice_text, view=view, ephemeral=False)
+
+
+@bot.tree.command(
+    name="분석",
+    description="[별칭] 치지직 다시보기 링크를 입력하여 가편집을 시작합니다.",
+)
+@app_commands.describe(치지직_링크="치지직 다시보기 영상 링크")
+async def cmd_manual_analyze(interaction: discord.Interaction, 치지직_링크: str):
+    await cmd_manual_roughcut(interaction, 치지직_링크)
+
 
 
 
@@ -530,186 +922,6 @@ async def execute_vod_pipeline_and_deliver(
         await user.send(content=delivery_msg, files=files_to_send)
         print(f"[OK] Successfully delivered package to Discord User: {discord_user_id}")
         return True
-    return False
-
-
-# =============================================================================
-# Streamer / Client Slash Commands
-# =============================================================================
-
-
-# Daily Rate Limiting Tracker (Max 5 requests per user per day)
-import datetime
-_daily_user_requests: dict[tuple[int, str], int] = {}
-
-
-def _check_and_increment_daily_rate_limit(user_id: int, max_limit: int = 5) -> bool:
-    """Checks and increments user's daily request count. Returns False if limit exceeded."""
-    today_str = datetime.date.today().isoformat()
-    key = (user_id, today_str)
-    current_count = _daily_user_requests.get(key, 0)
-    if current_count >= max_limit:
-        return False
-    _daily_user_requests[key] = current_count + 1
-    return True
-
-
-@bot.tree.command(
-    name="인증",
-    description="전달받은 1회용 암호로 채널 등록을 완료합니다.",
-)
-@app_commands.describe(암호="전달받은 1회용 인증 암호 (예: YMDU-8492)")
-async def cmd_verify_passcode(interaction: discord.Interaction, 암호: str):
-    user_id = interaction.user.id
-    welcome_notice = """[서비스 등록 완료]
-
-계정 인증이 정상적으로 완료되었습니다.
-
-[이용 방법]
-- 자동 알림: 생방송 종료 시 방종을 자동 감지하여 본 대화창으로 가편집 시작 안내가 전송됩니다.
-- 수동 분석: 지난 방송의 경우 치지직 다시보기 링크(URL)를 본 대화창에 전송하면 즉시 분석됩니다.
-- 모드 선택: 솔로 모드 / 합방 모드 중 원하는 편집 스타일을 선택합니다.
-- 결과 수령: 작업 완료 시 결과물 패키지가 본 대화창으로 자동 전송됩니다.
-
-[제공 파일]
-- Final Cut Pro / Premiere Pro 가편집 타임라인 (XML)
-- 가편집 타임라인 동기화 자막 (SRT)
-
-[안내 사항]
-- 계정 연동: 디스코드 1개 계정당 1개의 치지직 채널만 1:1 전용으로 연동됩니다.
-- 분석 대상: 등록된 본인 채널의 다시보기 영상에 한해 분석이 진행됩니다. (타 채널 분석 불가)
-- 작업 용도: AI 자동 추출 결과물이므로 영상 편집의 초벌(가편집) 및 자막 기초 자료 용도로 활용해 주시기 바랍니다.
-- 이용 한도: 안정적인 서비스 운영을 위해 1회 1작업이 진행되며, 일일 최대 5회까지 분석 가능합니다.
-- 데이터 보안: 수집된 방송 데이터는 가편집 완료 즉시 안전하게 영구 파기됩니다.
-"""
-
-    # Check if already bound
-    existing = db.get_binding_by_discord_user_id(user_id)
-    if existing:
-        await interaction.response.send_message(welcome_notice, ephemeral=False)
-        return
-
-    res = db.verify_and_bind_passcode(passcode=암호, discord_user_id=user_id)
-    if not res:
-        await interaction.response.send_message(
-            "[인증 실패]\n유효하지 않거나 이미 사용된 인증 암호입니다. 관리자에게 확인해 주시기 바랍니다.",
-            ephemeral=True,
-        )
-        return
-
-    await interaction.response.send_message(welcome_notice, ephemeral=False)
-
-
-@bot.tree.command(
-    name="분석",
-    description="치지직 다시보기 링크를 수동으로 입력하여 가편집 파일과 자막을 즉시 생성합니다.",
-)
-@app_commands.describe(다시보기링크="치지직 다시보기 링크 (예: https://chzzk.naver.com/video/1049281)")
-async def cmd_manual_analyze(interaction: discord.Interaction, 다시보기링크: str):
-    user_id = interaction.user.id
-    binding = db.get_binding_by_discord_user_id(user_id)
-
-    if not binding:
-        await interaction.response.send_message(
-            "[접근 권한 제한]\n사전 등록된 계정 전용 서비스입니다. 관리자에게 1회용 인증 암호를 발급받은 후 '/인증 [암호]' 명령어를 진행해 주시기 바랍니다.",
-            ephemeral=True,
-        )
-        return
-
-    # Rate Limiting check
-    if not _check_and_increment_daily_rate_limit(user_id, max_limit=5):
-        await interaction.response.send_message(
-            "[일일 요청 한도 초과]\n금일 요청 가능한 분석 횟수(최대 5회)를 초과하였습니다. 익일 다시 이용해 주시기 바랍니다.",
-            ephemeral=True,
-        )
-        return
-
-    # 1. Video ownership verification
-    v_no = extract_chzzk_video_no(다시보기링크)
-    if not v_no:
-        await interaction.response.send_message(
-            "[입력 오류]\n올바른 치지직 다시보기 영상 링크(URL)를 입력해 주시기 바랍니다.",
-            ephemeral=True,
-        )
-        return
-
-    meta = fetch_chzzk_video_meta(v_no)
-    if not meta:
-        await interaction.response.send_message(
-            "[분석 대상 오류]\n해당 치지직 다시보기 영상 정보를 불러올 수 없습니다. 링크를 확인해 주세요.",
-            ephemeral=True,
-        )
-        return
-
-    video_ch_id = meta.get("channel_id", "")
-    bound_ch_id = binding.get("channel_id", "")
-
-    if video_ch_id and bound_ch_id and video_ch_id != bound_ch_id:
-        await interaction.response.send_message(
-            "[분석 대상 오류]\n등록된 채널의 다시보기 영상만 분석 가능합니다. 영상 링크를 다시 확인해 주시기 바랍니다.",
-            ephemeral=True,
-        )
-        return
-
-    st_name = binding["streamer_name"]
-    target_dna = binding.get("target_dna_profile") or st_name
-
-    v_url = f"https://chzzk.naver.com/video/{v_no}" if v_no else 다시보기링크.strip()
-    view = ModeSelectionView(
-        vod_url_or_no=v_url,
-        streamer_name=st_name,
-        target_dna_profile=target_dna,
-        discord_user_id=user_id,
-    )
-    notice_text = (
-        f"[다시보기 분석 요청 접수]\n"
-        f"영상 링크: `{v_url}`\n\n"
-        "진행할 가편집 스타일을 선택해 주시기 바랍니다.\n"
-        "• 솔로 모드: 개인 방송 텐션 및 호흡 기준 가편집\n"
-        "• 합방 모드: 디스코드 및 다인 방송 텐션 기준 가편집"
-    )
-    await interaction.response.send_message(notice_text, view=view, ephemeral=False)
-
-
-@bot.tree.command(
-    name="초기화",
-    description="봇이 보낸 이전 안내 및 가편집 메시지들을 일괄 삭제하여 대화창을 청소합니다.",
-)
-@app_commands.describe(개수="삭제할 최근 메시지 개수 (기본값: 30개, 최대 100개)")
-async def cmd_clear_messages(interaction: discord.Interaction, 개수: int = 30):
-    await interaction.response.defer(ephemeral=True)
-    deleted_count = 0
-    channel = interaction.channel
-    limit_val = max(1, min(100, 개수))
-
-    if isinstance(channel, discord.DMChannel):
-        async for msg in channel.history(limit=limit_val):
-            if msg.author.id == bot.user.id:
-                try:
-                    await msg.delete()
-                    deleted_count += 1
-                    await asyncio.sleep(0.2)
-                except Exception:
-                    pass
-    else:
-        try:
-            async for msg in channel.history(limit=limit_val):
-                if msg.author.id == bot.user.id:
-                    try:
-                        await msg.delete()
-                        deleted_count += 1
-                        await asyncio.sleep(0.2)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    await interaction.followup.send(
-        f"대화창 정리 완료: 이전 메시지 {deleted_count}개가 삭제되었습니다.",
-        ephemeral=True,
-    )
-
-
 # =============================================================================
 # DM Message Listener (Link Auto-Detection with Deduplication)
 # =============================================================================
@@ -739,56 +951,34 @@ async def on_message(message: discord.Message):
             clean_content.isdigit() and len(clean_content) >= 5
         ):
             user_id = message.author.id
-            binding = db.get_binding_by_discord_user_id(user_id)
-            if not binding:
+            profiles = db.get_user_profiles(user_id)
+            if not profiles:
                 await message.channel.send(
-                    "[접근 권한 제한]\n사전 등록된 계정 전용 서비스입니다. 관리자에게 1회용 인증 암호를 발급받은 후 '/인증 [암호]' 명령어를 진행해 주시기 바랍니다."
+                    "⚠️ **[스트리머 발화 프로필 미등록 안내]**\n"
+                    "등록된 발화 프로필이 없습니다. 먼저 `/프로필등록` 명령어로 3+3 영상을 등록해 주세요."
                 )
                 return
 
-            # Rate Limiting check
-            if not _check_and_increment_daily_rate_limit(user_id, max_limit=5):
-                await message.channel.send(
-                    "[일일 요청 한도 초과]\n금일 요청 가능한 분석 횟수(최대 5회)를 초과하였습니다. 익일 다시 이용해 주시기 바랍니다."
-                )
-                return
-
-            # Video ownership verification
             v_no = extract_chzzk_video_no(clean_content)
             if not v_no:
-                await message.channel.send("[입력 오류]\n올바른 치지직 다시보기 영상 링크를 입력해 주시기 바랍니다.")
+                await message.channel.send("❌ 올바른 치지직 다시보기 영상 링크를 입력해 주세요.")
                 return
 
             meta = fetch_chzzk_video_meta(v_no)
-            if not meta:
-                await message.channel.send("[분석 대상 오류]\n해당 치지직 다시보기 영상 정보를 불러올 수 없습니다.")
-                return
-
-            video_ch_id = meta.get("channel_id", "")
-            bound_ch_id = binding.get("channel_id", "")
-
-            if video_ch_id and bound_ch_id and video_ch_id != bound_ch_id:
-                await message.channel.send(
-                    "[분석 대상 오류]\n등록된 채널의 다시보기 영상만 분석 가능합니다. 영상 링크를 다시 확인해 주시기 바랍니다."
-                )
-                return
-
-            st_name = binding["streamer_name"]
-            target_dna = binding.get("target_dna_profile") or st_name
-
+            v_title = meta.get("title") if meta else "치지직 다시보기"
             v_url = f"https://chzzk.naver.com/video/{v_no}"
-            view = ModeSelectionView(
+
+            view = ProfileAndModeSelectionView(
                 vod_url_or_no=v_url,
-                streamer_name=st_name,
-                target_dna_profile=target_dna,
                 discord_user_id=user_id,
+                profiles=profiles,
+                video_title=v_title,
             )
             notice_text = (
-                f"[다시보기 분석 요청 접수]\n"
-                f"영상 링크: `{v_url}`\n\n"
-                "진행할 가편집 스타일을 선택해 주시기 바랍니다.\n"
-                "• 솔로 모드: 개인 방송 텐션 및 호흡 기준 가편집\n"
-                "• 합방 모드: 디스코드 및 다인 방송 텐션 기준 가편집"
+                f"🎬 **[다시보기 분석 요청 접수]**\n"
+                f"• **방송 제목:** {v_title}\n"
+                f"• **영상 링크:** `{v_url}`\n\n"
+                "적용할 **발화 프로필**을 선택한 후 **솔로/합방 모드**를 클릭해 주세요:"
             )
             await message.channel.send(content=notice_text, view=view)
 

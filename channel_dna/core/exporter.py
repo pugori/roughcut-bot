@@ -13,6 +13,7 @@ from channel_dna.core.exporters.xml_exporter import (
     get_marker_color,
 )
 from channel_dna.core.models import ScanMarker
+from channel_dna.core.subtitle_formatter import SubtitleItem
 from channel_dna.core.utils import format_time_hhmmss
 
 __all__ = [
@@ -44,6 +45,8 @@ class MarkerExporter:
         export_format: str = "xml",
         fps: float = 30.0,
         video_file_name: str | None = None,
+        subtitles: list[SubtitleItem] | None = None,
+        profile_type: str = "solo",
     ) -> Path:
         out_p = Path(output_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -55,6 +58,8 @@ class MarkerExporter:
                 output_path,
                 fps=fps,
                 video_file_name=video_file_name,
+                subtitles=subtitles,
+                profile_type=profile_type,
             )
         elif fmt == "edl":
             return self.edl_exp.export(
@@ -100,7 +105,14 @@ class MarkerExporter:
             out_p.write_text("\n".join(lines), encoding="utf-8")
             return out_p
         else:
-            return self.xml_exp.export(markers, vod_file_path, output_path, fps)
+            return self.xml_exp.export(
+                markers,
+                vod_file_path,
+                output_path,
+                fps=fps,
+                subtitles=subtitles,
+                profile_type=profile_type,
+            )
 
     def export_all_formats(
         self,
@@ -108,6 +120,8 @@ class MarkerExporter:
         vod_file_path: str,
         base_output_path: str,
         fps: float = 30.0,
+        subtitles: list[SubtitleItem] | None = None,
+        profile_type: str = "solo",
     ) -> dict[str, str]:
         p = Path(base_output_path)
         stem = (
@@ -122,7 +136,15 @@ class MarkerExporter:
         otio_path = parent / f"{stem}_universal_timeline.otio"
         vrew_path = parent / f"{stem}_vrew_cut_table.csv"
 
-        self.export(markers, vod_file_path, str(xml_path), export_format="xml", fps=fps)
+        self.export(
+            markers,
+            vod_file_path,
+            str(xml_path),
+            export_format="xml",
+            fps=fps,
+            subtitles=subtitles,
+            profile_type=profile_type,
+        )
         self.export(markers, vod_file_path, str(edl_path), export_format="edl", fps=fps)
         self.export(
             markers, vod_file_path, str(capcut_path), export_format="capcut", fps=fps
@@ -139,3 +161,4 @@ class MarkerExporter:
             "otio": str(otio_path),
             "vrew": str(vrew_path),
         }
+

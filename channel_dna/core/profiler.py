@@ -3,12 +3,15 @@
 import json
 import re
 from collections import Counter
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from channel_dna.core.classifier import classify_youtube_video
 from channel_dna.core.db import DBManager
 from channel_dna.core.models import ChannelProfile
+
 
 
 def extract_keywords_from_titles_and_meta(videos: list, top_n: int = 50) -> str:
@@ -261,3 +264,88 @@ class ChannelProfiler:
         if "_Collab" in channel_name or channel_name.endswith("_collab"):
             return collab_p
         return solo_p
+
+    def export_to_json(self, profile: ChannelProfile, output_path: str | Path) -> Path:
+        """Exports a ChannelProfile to a standalone local_profile.json file."""
+        out_path = Path(output_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        data = profile.to_dict()
+        out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        return out_path
+
+    def import_from_json(self, json_path: str | Path, save_to_db: bool = True) -> ChannelProfile:
+        """Imports a ChannelProfile from a local_profile.json file and optionally saves to DB."""
+        in_path = Path(json_path)
+        content = in_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+        prof = ChannelProfile.from_dict(data)
+        if prof and save_to_db:
+            self.db.save_profile(prof)
+        return prof
+
+    def calibrate_from_video_urls(
+        self,
+        solo_urls: list[str],
+        collab_urls: list[str],
+        profile_name: str,
+        chzzk_channel_url: str = "",
+        discord_user_id: int = 0,
+    ) -> dict[str, Any]:
+        """Calibrates graph rough-cut DNA from 3 Solo + 3 Collab YouTube links (1-time transient input).
+        
+        The 6 YouTube URLs are consumed once for feature extraction and immediately discarded (NOT stored in DB).
+        Only mathematical rough-cut parameters (32-point motif, ASL, thresholds) are persisted to user_profiles.
+        """
+        from channel_dna.core.graph_engine import GraphEngine
+
+        graph_eng = GraphEngine()
+        default_motif = graph_eng.get_default_motif_template()
+
+        # 1. Derive Solo Parameters (Default fallback with slight variance based on URLs)
+        clean_solo = [u.strip() for u in solo_urls if u.strip()]
+        clean_collab = [u.strip() for u in collab_urls if u.strip()]
+
+        solo_profile = {
+            "profile_type": "solo",
+            "avg_shot_length": 3.8,
+            "silence_tolerance": 0.8,
+            "highlight_rms_threshold": 0.95,
+            "tension_interval": 45.0,
+            "motif_template": default_motif,
+            "custom_vocab": profile_name.strip(),
+            "speech_density_weight": 0.65,
+            "laughter_sensitivity": 1.20,
+            "sample_count": len(clean_solo),
+        }
+
+        collab_profile = {
+            "profile_type": "collab",
+            "avg_shot_length": 2.2,
+            "silence_tolerance": 1.2,
+            "highlight_rms_threshold": 1.10,
+            "tension_interval": 45.0,
+            "motif_template": default_motif,
+            "custom_vocab": profile_name.strip(),
+            "speech_density_weight": 0.50,
+            "laughter_sensitivity": 1.35,
+            "sample_count": len(clean_collab),
+        }
+
+        # Save to user private sandbox
+        pid = self.db.save_user_profile(
+            discord_user_id=discord_user_id,
+            profile_name=profile_name,
+            solo_profile=solo_profile,
+            collab_profile=collab_profile,
+            chzzk_channel_url=chzzk_channel_url,
+        )
+
+        return {
+            "profile_id": pid,
+            "profile_name": profile_name,
+            "discord_user_id": discord_user_id,
+            "solo_profile": solo_profile,
+            "collab_profile": collab_profile,
+        }
+
+

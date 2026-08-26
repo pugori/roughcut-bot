@@ -434,14 +434,27 @@ class PipelineFacade:
                     except Exception as e:
                         _logger.debug("Silenced exception: %s", e)
 
+                p_type = getattr(profile, "profile_type", "solo") or "solo"
+                rough_subs = None
+                if subtitles:
+                    if progress_cb:
+                        progress_cb("Export", 0.70, "공용 초벌 자막 및 타임라인 동기화 중...")
+                    rough_subs = self.subtitle_engine.map_subtitles_to_rough_cut(
+                        subtitles, markers, fps=60.0
+                    )
+                    if rough_subs:
+                        self.subtitle_engine.export_srt(
+                            rough_subs, str(pkg_dir / srt_name)
+                        )
+
                 if progress_cb:
                     progress_cb(
                         "Export",
-                        0.6,
-                        "통합 타임라인(XML) 및 공용 초벌 자막(SRT) 생성 중...",
+                        0.80,
+                        "통합 타임라인(XML: V1~V4 트랙) 및 공용 초벌 자막(SRT) 생성 중...",
                     )
 
-                # 1. 60fps Master XML (메인 공용 가편집본: [날짜+제목].xml)
+                # 1. 60fps Master XML (메인 공용 가편집본: [날짜+제목].xml, 화자별 자막 트랙 포함)
                 self.exporter.export(
                     markers,
                     vod_path,
@@ -449,6 +462,8 @@ class PipelineFacade:
                     fps=60.0,
                     export_format="xml",
                     video_file_name=f"{folder_name}.mp4",
+                    subtitles=rough_subs,
+                    profile_type=p_type,
                 )
 
                 # 2. Universal OpenTimelineIO (.otio: [날짜+제목].otio)
@@ -471,19 +486,10 @@ class PipelineFacade:
                     fps=30.0,
                     export_format="xml",
                     video_file_name=f"{folder_name}.mp4",
+                    subtitles=rough_subs,
+                    profile_type=p_type,
                 )
 
-                # 3. Universal Subtitles (공용 초벌 자막: [날짜+제목].srt)
-                if subtitles:
-                    if progress_cb:
-                        progress_cb("Export", 0.85, "공용 초벌 자막(.srt) 생성 중...")
-                    rough_subs = self.subtitle_engine.map_subtitles_to_rough_cut(
-                        subtitles, markers
-                    )
-                    if rough_subs:
-                        self.subtitle_engine.export_srt(
-                            rough_subs, str(pkg_dir / srt_name)
-                        )
 
                 # Generate clean studio notice & usage guide document
                 if progress_cb:
@@ -759,8 +765,15 @@ class PipelineFacade:
 
         # 1. Export Markers (Official XML for Premiere Pro, EDL for DaVinci Resolve)
         if markers:
-            self.exporter.xml_exp.export(markers, vod_title, str(xml_path), fps)
-            self.exporter.edl_exp.export(markers, vod_title, str(edl_path), fps)
+            rough_subs = None
+            if subtitles:
+                rough_subs = self.subtitle_engine.map_subtitles_to_rough_cut(
+                    subtitles, markers, fps=fps
+                )
+            self.exporter.xml_exp.export(
+                markers, vod_title, str(xml_path), fps=fps, subtitles=rough_subs
+            )
+            self.exporter.edl_exp.export(markers, vod_title, str(edl_path), fps=fps)
 
         # 2. Export Subtitles (SRT with absolute VOD timecodes)
         if subtitles:
@@ -777,6 +790,22 @@ class PipelineFacade:
         """Derives and saves channel baseline profile from collected video analyses in DB."""
         return self.profiler.derive_profile(channel_name)
 
+    def export_profile_json(
+        self, channel_name_or_profile: str | ChannelProfile, output_path: str | Path
+    ) -> Path:
+        """Exports profile to a standalone local_profile.json file."""
+        if isinstance(channel_name_or_profile, str):
+            prof = self.db.get_profile(channel_name_or_profile) or self.profiler.derive_profile(channel_name_or_profile)
+        else:
+            prof = channel_name_or_profile
+        return self.profiler.export_to_json(prof, output_path)
+
+    def import_profile_json(
+        self, json_path: str | Path, save_to_db: bool = True
+    ) -> ChannelProfile:
+        """Imports profile from a local_profile.json file."""
+        return self.profiler.import_from_json(json_path, save_to_db=save_to_db)
+
     def export_markers(
         self,
         markers: list[ScanMarker],
@@ -784,12 +813,15 @@ class PipelineFacade:
         output_path: str,
         export_format: str = "xml",
     ) -> str:
-        return self.exporter.export(
-            markers, vod_path, output_path, export_format=export_format
+        return str(
+            self.exporter.export(
+                markers, vod_path, output_path, export_format=export_format
+            )
         )
 
     def export_subtitles(self, subtitles: list[SubtitleItem], output_path: str) -> str:
         return str(self.subtitle_engine.export_srt(subtitles, output_path))
+
 
     def derive_two_track_profiles(
         self, channel_name: str

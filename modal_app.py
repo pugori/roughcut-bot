@@ -235,6 +235,22 @@ def _execute_pipeline_core(
         clean_stem = f"{broadcast_date}_{clean_title}"
         tmp_dir = Path(tempfile.gettempdir())
 
+        # Map subtitles to rough cut timeline
+        solo_subs = None
+        collab_subs = None
+        target_subs = None
+
+        if subtitles:
+            if solo_markers:
+                solo_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
+                    subtitles, solo_markers, fps=60.0
+                )
+            if collab_markers:
+                collab_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
+                    subtitles, collab_markers, fps=60.0
+                )
+            target_subs = collab_subs if selected_mode == "collab" else solo_subs
+
         solo_xml_content = ""
         collab_xml_content = ""
 
@@ -247,6 +263,8 @@ def _execute_pipeline_core(
                 fps=60.0,
                 export_format="xml",
                 video_file_name=f"{clean_stem}.mp4",
+                subtitles=solo_subs,
+                profile_type="solo",
             )
             solo_xml_content = solo_xml_path.read_text(encoding="utf-8") if solo_xml_path.exists() else ""
 
@@ -259,19 +277,17 @@ def _execute_pipeline_core(
                 fps=60.0,
                 export_format="xml",
                 video_file_name=f"{clean_stem}.mp4",
+                subtitles=collab_subs,
+                profile_type="collab",
             )
             collab_xml_content = collab_xml_path.read_text(encoding="utf-8") if collab_xml_path.exists() else ""
 
         # [4/5] Export SRT to memory
         srt_content = ""
-        if subtitles and target_markers:
-            rough_subs = facade.subtitle_engine.map_subtitles_to_rough_cut(
-                subtitles, target_markers, fps=60.0
-            )
-            if rough_subs:
-                srt_path = tmp_dir / f"{clean_stem}_자막.srt"
-                facade.subtitle_engine.export_srt(rough_subs, str(srt_path))
-                srt_content = srt_path.read_text(encoding="utf-8") if srt_path.exists() else ""
+        if target_subs:
+            srt_path = tmp_dir / f"{clean_stem}_자막.srt"
+            facade.subtitle_engine.export_srt(target_subs, str(srt_path))
+            srt_content = srt_path.read_text(encoding="utf-8") if srt_path.exists() else ""
 
         print("[5/5] Package successfully generated! Returning package to Discord bot.", flush=True)
 

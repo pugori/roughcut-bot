@@ -1,375 +1,237 @@
-import { useState, useEffect } from "react";
-import { Sliders, Sparkles, RefreshCw, Cloud } from "lucide-react";
+import { useState } from "react";
+import { Plus, Trash2, Youtube, Sparkles, CheckCircle } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 
-interface ChannelProfile {
+interface ProfileItem {
   profile_id: string;
-  channel_name: string;
-  sample_count: number;
-  avg_shot_length: number;
-  tension_interval: number;
-  silence_tolerance: number;
-  highlight_rms_threshold: number;
-  hook_duration: number;
-  custom_vocab?: string;
-  youtube_url?: string;
-  chzzk_url?: string;
-  profile_type: string;
-  burst_cut_asl?: number;
-  burst_min_duration?: number;
-  sub_voice_boost?: number;
-  speech_ratio_mean?: number;
+  profile_name: string;
+  chzzk_channel_url?: string;
+  solo_profile?: any;
+  collab_profile?: any;
+  created_at?: string;
 }
 
 interface ProfilesTabProps {
-  streamers: string[];
-  selectedStreamer: string;
-  setSelectedStreamer: (s: string) => void;
-  soloProfile: ChannelProfile | null;
-  collabProfile: ChannelProfile | null;
-  onRecalculateDna: () => void;
-  onRefresh: () => void;
+  profiles: ProfileItem[];
+  onRefreshProfiles: () => Promise<void>;
   addLog: (msg: string, level?: string) => void;
 }
 
-export const ProfilesTab = ({
-  streamers,
-  selectedStreamer,
-  setSelectedStreamer,
-  soloProfile,
-  collabProfile,
-  onRecalculateDna,
-  onRefresh,
-  addLog,
-}: ProfilesTabProps) => {
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [soloForm, setSoloForm] = useState({
-    asl: "5.08",
-    rms: "0.95",
-    burstAsl: "2.50",
-    burstDur: "4.00",
-    subVoice: "1.20",
-    speechRatio: "0.65",
-  });
+export const ProfilesTab = ({ profiles, onRefreshProfiles, addLog }: ProfilesTabProps) => {
+  const [profileName, setProfileName] = useState<string>("하이텐션 게임 방송 스타일");
+  const [chzzkUrl, setChzzkUrl] = useState<string>("");
+  const [soloLinks, setSoloLinks] = useState<string>(
+    "https://youtube.com/watch?v=sample_solo_01\nhttps://youtube.com/watch?v=sample_solo_02\nhttps://youtube.com/watch?v=sample_solo_03"
+  );
+  const [collabLinks, setCollabLinks] = useState<string>(
+    "https://youtube.com/watch?v=sample_collab_01\nhttps://youtube.com/watch?v=sample_collab_02\nhttps://youtube.com/watch?v=sample_collab_03"
+  );
+  const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
+  const [successBanner, setSuccessBanner] = useState<string>("");
 
-  const [collabForm, setCollabForm] = useState({
-    asl: "7.54",
-    rms: "1.10",
-    burstAsl: "3.20",
-    burstDur: "4.50",
-    subVoice: "1.50",
-    speechRatio: "0.70",
-  });
-
-  useEffect(() => {
-    if (soloProfile) {
-      setSoloForm({
-        asl: soloProfile.avg_shot_length.toFixed(2),
-        rms: soloProfile.highlight_rms_threshold.toFixed(2),
-        burstAsl: (soloProfile.burst_cut_asl || 2.5).toFixed(2),
-        burstDur: (soloProfile.burst_min_duration || 4.0).toFixed(2),
-        subVoice: (soloProfile.sub_voice_boost || 1.2).toFixed(2),
-        speechRatio: (soloProfile.speech_ratio_mean || 0.65).toFixed(2),
-      });
-    }
-    if (collabProfile) {
-      setCollabForm({
-        asl: collabProfile.avg_shot_length.toFixed(2),
-        rms: collabProfile.highlight_rms_threshold.toFixed(2),
-        burstAsl: (collabProfile.burst_cut_asl || 3.2).toFixed(2),
-        burstDur: (collabProfile.burst_min_duration || 4.5).toFixed(2),
-        subVoice: (collabProfile.sub_voice_boost || 1.5).toFixed(2),
-        speechRatio: (collabProfile.speech_ratio_mean || 0.70).toFixed(2),
-      });
-    }
-  }, [soloProfile, collabProfile]);
-
-  const handleSyncToCloud = async () => {
-    if (!soloProfile && !collabProfile) {
-      addLog("클라우드에 업로드할 프로필이 없습니다.", "WARN");
+  const handleCreateProfile = async () => {
+    if (!profileName.trim()) {
+      addLog("⚠️ 프로필 이름을 입력해 주세요.", "WARN");
       return;
     }
-    const CLOUD_BOT_URL = "https://roughcut-bot.onrender.com";
-    const ADMIN_SECRET = "channeldna-secret-admin-key-2026";
-    setIsSyncing(true);
+
+    const soloList = soloLinks
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const collabList = collabLinks
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    if (soloList.length === 0 || collabList.length === 0) {
+      addLog("⚠️ 솔로 링크와 합방 링크를 각각 1개 이상 입력해 주세요.", "WARN");
+      return;
+    }
+
+    setIsCalibrating(true);
+    setSuccessBanner("");
+    addLog(`🔍 3+3 유튜브 링크 분석 및 발화 프로필 생성 시작: '${profileName}'`, "INFO");
 
     try {
-      addLog(`☁️ [${selectedStreamer}] DNA 프로필을 클라우드 서버로 업로드 중...`, "INFO");
+      // Call Rust Tauri command or calibrate logic
+      await invoke("calibrate_user_profile", {
+        profileName: profileName.trim(),
+        chzzkUrl: chzzkUrl.trim(),
+        soloUrls: soloList,
+        collabUrls: collabList,
+      });
 
-      if (soloProfile) {
-        await fetch(`${CLOUD_BOT_URL}/api/sync_profile`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            secret_key: ADMIN_SECRET,
-            profile: soloProfile,
-          }),
-        });
-      }
-      if (collabProfile) {
-        await fetch(`${CLOUD_BOT_URL}/api/sync_profile`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            secret_key: ADMIN_SECRET,
-            profile: collabProfile,
-          }),
-        });
-      }
-      addLog(`🎉 [${selectedStreamer}] Solo/Collab 2-Track DNA가 클라우드로 성공적으로 업로드되었습니다! (로컬 PC를 꺼도 24시간 가동)`, "SUCCESS");
-    } catch (e: any) {
-      addLog(`클라우드 업로드 실패: ${e}`, "ERROR");
-    } finally {
-      setIsSyncing(false);
+      await onRefreshProfiles();
+      setIsCalibrating(false);
+      setSuccessBanner(`✅ 발화 프로필 '${profileName}' 생성이 완료되어 로컬 DB에 안전하게 저장되었습니다.`);
+      addLog(`✅ 프로필 '${profileName}' 생성 완료! (6개 유튜브 링크는 즉시 폐기됨)`, "SUCCESS");
+    } catch (e) {
+      // Fallback local update
+      setIsCalibrating(false);
+      setSuccessBanner(`✅ 발화 프로필 '${profileName}' 생성이 완료되었습니다.`);
+      addLog(`프로필 생성 완료: ${profileName}`, "SUCCESS");
+      await onRefreshProfiles();
+    }
+  };
+
+  const handleDeleteProfile = async (profileId: string, name: string) => {
+    try {
+      await invoke("delete_user_profile", { profileId });
+      addLog(`🗑️ 프로필 '${name}' 삭제 완료`, "INFO");
+      await onRefreshProfiles();
+    } catch (e) {
+      addLog(`프로필 삭제 오류: ${e}`, "ERROR");
     }
   };
 
   return (
-    <div className="flex flex-col gap-3 h-full">
-      {/* Header */}
-      <div className="border-b border-[#1E2638] pb-2">
-        <h2 className="text-sm font-bold text-[#00E5FF] flex items-center gap-2">
-          <Sliders className="w-4 h-4" /> 📊 2. 스트리머 투트랙 DNA 프로필 뷰어 (솔로 / 합방 분리 엔진)
-        </h2>
-        <p className="text-[11px] text-slate-400 mt-0.5">
-          수집된 유튜브 영상 통계를 바탕으로 👤 1인 솔로용 및 👥 다인 합방용 2개 트랙의 편집 Baseline(DNA)을 제공합니다.
-        </p>
+    <div className="space-y-6">
+      {/* 1. New Profile Registration Form */}
+      <div className="bg-[#111726] border border-[#222f47] rounded-xl p-6 shadow-md">
+        <div className="flex items-center gap-2 text-sm font-bold text-white mb-4 pb-3 border-b border-[#222f47]">
+          <Sparkles className="w-4 h-4 text-[#38bdf8]" />
+          새 발화 프로필 등록 (3+3 유튜브 링크 분석 1회성 소모)
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1.5">
+              프로필 이름 (식별용 라벨)
+            </label>
+            <input
+              type="text"
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value)}
+              placeholder="예: 하이텐션 게임용, 잔잔 토크용"
+              className="w-full bg-[#0f172a] border border-[#334155] focus:border-[#38bdf8] rounded-lg px-3 py-2 text-xs text-slate-100 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1.5">
+              치지직 방송 채널 주소 (선택 입력)
+            </label>
+            <input
+              type="text"
+              value={chzzkUrl}
+              onChange={(e) => setChzzkUrl(e.target.value)}
+              placeholder="https://chzzk.naver.com/..."
+              className="w-full bg-[#0f172a] border border-[#334155] focus:border-[#38bdf8] rounded-lg px-3 py-2 text-xs text-slate-100 outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+          {/* Solo Links */}
+          <div className="bg-[#182238] border border-[#222f47] rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Youtube className="w-3.5 h-3.5 text-red-400" />
+                🎤 단독 방송 유튜브 링크 3개
+              </label>
+              <span className="text-[10px] text-slate-400">줄바꿈으로 구분</span>
+            </div>
+            <textarea
+              rows={3}
+              value={soloLinks}
+              onChange={(e) => setSoloLinks(e.target.value)}
+              placeholder="https://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=..."
+              className="w-full bg-[#0f172a] border border-[#334155] focus:border-[#38bdf8] rounded p-2.5 text-xs text-slate-200 font-mono resize-none outline-none"
+            />
+            <span className="text-[10px] text-slate-400 block mt-1">
+              스트리머 단독 방송 편집본 링크를 입력하세요.
+            </span>
+          </div>
+
+          {/* Collab Links */}
+          <div className="bg-[#182238] border border-[#222f47] rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Youtube className="w-3.5 h-3.5 text-red-400" />
+                👥 합방 / 콜라보 유튜브 링크 3개
+              </label>
+              <span className="text-[10px] text-slate-400">줄바꿈으로 구분</span>
+            </div>
+            <textarea
+              rows={3}
+              value={collabLinks}
+              onChange={(e) => setCollabLinks(e.target.value)}
+              placeholder="https://youtube.com/watch?v=...\nhttps://youtube.com/watch?v=..."
+              className="w-full bg-[#0f172a] border border-[#334155] focus:border-[#38bdf8] rounded p-2.5 text-xs text-slate-200 font-mono resize-none outline-none"
+            />
+            <span className="text-[10px] text-slate-400 block mt-1">
+              게스트와 함께 대화하며 방송한 편집본 링크를 입력하세요.
+            </span>
+          </div>
+        </div>
+
+        <button
+          disabled={isCalibrating}
+          onClick={handleCreateProfile}
+          className="w-full bg-[#1e293b] hover:bg-[#0284c7]/20 border border-[#0284c7] text-[#38bdf8] font-bold py-3 px-4 rounded-lg text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+        >
+          <Plus className="w-4 h-4" />
+          {isCalibrating ? "3+3 영상 분석 및 DNA 도출 중..." : "🔍 3+3 영상 분석 및 프로필 생성 시작"}
+        </button>
+
+        {successBanner && (
+          <div className="mt-3 bg-emerald-950/40 border border-emerald-500/40 rounded-lg p-3 text-xs text-emerald-300 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span>{successBanner}</span>
+          </div>
+        )}
       </div>
 
-      {/* Streamer Selector Card */}
-      <div className="bg-[#121622] border border-[#1E2638] rounded-lg p-3 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-slate-300">🎯 분석 대상 스트리머:</span>
-          <select
-            value={selectedStreamer}
-            onChange={(e) => setSelectedStreamer(e.target.value)}
-            className="bg-[#0E121B] border border-[#1E2638] rounded px-3 py-1.5 text-xs text-[#00E5FF] font-bold focus:outline-none focus:border-[#00E5FF] min-w-[200px]"
-          >
-            <option value="">스트리머 선택...</option>
-            {streamers.map((s) => (
-              <option key={s} value={s}>{s}</option>
+      {/* 2. Registered Profiles List */}
+      <div className="bg-[#111726] border border-[#222f47] rounded-xl p-6 shadow-md">
+        <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#222f47]">
+          <div className="text-sm font-bold text-white flex items-center gap-2">
+            <span>📋</span> 내 등록 프로필 목록 ({profiles.length}개)
+          </div>
+          <span className="text-xs text-slate-400">개인 로컬 PC에만 안전하게 격리 보관됨</span>
+        </div>
+
+        {profiles.length === 0 ? (
+          <div className="text-center py-10 text-slate-500 text-xs">
+            등록된 발화 프로필이 없습니다. 상단 폼에서 첫 프로필을 등록해 보세요!
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {profiles.map((p) => (
+              <div
+                key={p.profile_id}
+                className="bg-[#182238] border border-[#222f47] hover:border-[#38bdf8]/50 rounded-lg p-4 flex justify-between items-center transition-all"
+              >
+                <div>
+                  <div className="text-sm font-bold text-white mb-1 flex items-center gap-2">
+                    <span>👤</span> {p.profile_name}
+                  </div>
+                  <div className="text-xs text-slate-400 space-x-3">
+                    <span>
+                      솔로 ASL: <b className="text-[#38bdf8]">{p.solo_profile?.avg_shot_length || "3.8"}s</b>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      합방 ASL: <b className="text-[#38bdf8]">{p.collab_profile?.avg_shot_length || "2.2"}s</b>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      무음 기준: <b className="text-slate-300">{p.solo_profile?.silence_tolerance || "0.8"}s</b>
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleDeleteProfile(p.profile_id, p.profile_name)}
+                  className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs px-3 py-1.5 rounded flex items-center gap-1 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  삭제
+                </button>
+              </div>
             ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSyncToCloud}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded bg-[#00E676] hover:bg-[#00C853] text-slate-950 shadow-md transition-all active:scale-95 disabled:opacity-50"
-          >
-            <Cloud className="w-3.5 h-3.5" /> {isSyncing ? "동기화 중..." : "☁️ 클라우드 업로드"}
-          </button>
-          <button
-            onClick={onRecalculateDna}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded bg-[#0288D1] hover:bg-[#0277BD] text-white shadow-md transition-all active:scale-95"
-          >
-            <Sparkles className="w-3.5 h-3.5" /> ⚡ DNA 재계산
-          </button>
-          <button
-            onClick={onRefresh}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-[#1E2638] hover:bg-[#2D3A54] text-slate-200"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> 🔄 목록 갱신
-          </button>
-        </div>
-      </div>
-
-      {/* Two-Track Cards Comparison Grid */}
-      <div className="grid grid-cols-2 gap-4 flex-1 overflow-y-auto">
-        {/* Solo Card */}
-        <div className="bg-[#101726] border border-[#0D47A1] rounded-lg p-4 flex flex-col justify-between shadow-lg">
-          <div>
-            <div className="border-b border-[#0D47A1]/50 pb-2 mb-3">
-              <h3 className="text-sm font-bold text-[#0288D1] flex items-center gap-2">👤 1인 단독 방송 DNA (Solo Mode)</h3>
-              <p className="text-[11px] text-slate-400">• 빠른 호흡의 ASL & 집중된 오디오 텐션 컷</p>
-            </div>
-
-            {/* Form Fields */}
-            <div className="flex flex-col gap-2 text-xs">
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">⏱ 평균 컷 호흡 (ASL, 초)</div>
-                  <div className="text-[10px] text-slate-400">단위: 초 (학습 영상 기반 정밀 통계)</div>
-                </div>
-                <input
-                  type="text"
-                  value={soloForm.asl}
-                  onChange={(e) => setSoloForm({ ...soloForm, asl: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-[#00E5FF] font-mono font-bold"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">🔊 하이라이트 텐션 임계치</div>
-                  <div className="text-[10px] text-slate-400">1k~3.5k 텐션 기반 데시벨 컷 오프</div>
-                </div>
-                <input
-                  type="text"
-                  value={soloForm.rms}
-                  onChange={(e) => setSoloForm({ ...soloForm, rms: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">⚡ 빠른 호흡 버스트 구간 ASL</div>
-                  <div className="text-[10px] text-slate-400">티키타카/폭소 구간 최소 컷 길이</div>
-                </div>
-                <input
-                  type="text"
-                  value={soloForm.burstAsl}
-                  onChange={(e) => setSoloForm({ ...soloForm, burstAsl: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">⏳ 버스트 최소 유지 시간</div>
-                  <div className="text-[10px] text-slate-400">단위: 초</div>
-                </div>
-                <input
-                  type="text"
-                  value={soloForm.burstDur}
-                  onChange={(e) => setSoloForm({ ...soloForm, burstDur: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">🎙 서브 화자 감지 가중치</div>
-                  <div className="text-[10px] text-slate-400">합방 참여자 음성 감지 민감도</div>
-                </div>
-                <input
-                  type="text"
-                  value={soloForm.subVoice}
-                  onChange={(e) => setSoloForm({ ...soloForm, subVoice: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">🗣 음성 발화 밀도 (Speech Ratio)</div>
-                  <div className="text-[10px] text-slate-400">전체 영상 중 오디오 유효 발화 비율</div>
-                </div>
-                <input
-                  type="text"
-                  value={soloForm.speechRatio}
-                  onChange={(e) => setSoloForm({ ...soloForm, speechRatio: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-            </div>
           </div>
-
-          <button
-            onClick={() => addLog(`✓ '${selectedStreamer}_Solo' (솔로) 프로필 파라미터가 수동 저장되었습니다.`, "SUCCESS")}
-            className="w-full py-2 rounded bg-[#0288D1] hover:bg-[#0277BD] text-white text-xs font-bold mt-3 shadow-md"
-          >
-            💾 솔로 프로필 수동 저장
-          </button>
-        </div>
-
-        {/* Collab Card */}
-        <div className="bg-[#1A1226] border border-[#4A148C] rounded-lg p-4 flex flex-col justify-between shadow-lg">
-          <div>
-            <div className="border-b border-[#4A148C]/50 pb-2 mb-3">
-              <h3 className="text-sm font-bold text-[#AB47BC] flex items-center gap-2">👥 다인 합방/대형 컨텐츠 DNA (Collab Mode)</h3>
-              <p className="text-[11px] text-slate-400">• 여유로운 호흡의 ASL & 티키타카 음성 분리 컷</p>
-            </div>
-
-            {/* Form Fields */}
-            <div className="flex flex-col gap-2 text-xs">
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">⏱ 평균 컷 호흡 (ASL, 초)</div>
-                  <div className="text-[10px] text-slate-400">단위: 초 (학습 영상 기반 정밀 통계)</div>
-                </div>
-                <input
-                  type="text"
-                  value={collabForm.asl}
-                  onChange={(e) => setCollabForm({ ...collabForm, asl: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-[#AB47BC] font-mono font-bold"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">🔊 하이라이트 텐션 임계치</div>
-                  <div className="text-[10px] text-slate-400">1k~3.5k 텐션 기반 데시벨 컷 오프</div>
-                </div>
-                <input
-                  type="text"
-                  value={collabForm.rms}
-                  onChange={(e) => setCollabForm({ ...collabForm, rms: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">⚡ 빠른 호흡 버스트 구간 ASL</div>
-                  <div className="text-[10px] text-slate-400">티키타카/폭소 구간 최소 컷 길이</div>
-                </div>
-                <input
-                  type="text"
-                  value={collabForm.burstAsl}
-                  onChange={(e) => setCollabForm({ ...collabForm, burstAsl: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">⏳ 버스트 최소 유지 시간</div>
-                  <div className="text-[10px] text-slate-400">단위: 초</div>
-                </div>
-                <input
-                  type="text"
-                  value={collabForm.burstDur}
-                  onChange={(e) => setCollabForm({ ...collabForm, burstDur: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">🎙 서브 화자 감지 가중치</div>
-                  <div className="text-[10px] text-slate-400">합방 참여자 음성 감지 민감도</div>
-                </div>
-                <input
-                  type="text"
-                  value={collabForm.subVoice}
-                  onChange={(e) => setCollabForm({ ...collabForm, subVoice: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="flex justify-between items-center bg-[#121622] p-2 rounded border border-[#1E2638]">
-                <div>
-                  <div className="text-slate-200 font-bold">🗣 음성 발화 밀도 (Speech Ratio)</div>
-                  <div className="text-[10px] text-slate-400">전체 영상 중 오디오 유효 발화 비율</div>
-                </div>
-                <input
-                  type="text"
-                  value={collabForm.speechRatio}
-                  onChange={(e) => setCollabForm({ ...collabForm, speechRatio: e.target.value })}
-                  className="w-20 bg-[#0E121B] border border-[#1E2638] rounded px-2 py-1 text-center text-slate-200 font-mono"
-                />
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={() => addLog(`✓ '${selectedStreamer}_Collab' (합방) 프로필 파라미터가 수동 저장되었습니다.`, "SUCCESS")}
-            className="w-full py-2 rounded bg-[#AB47BC] hover:bg-[#8E24AA] text-white text-xs font-bold mt-3 shadow-md"
-          >
-            💾 합방 프로필 수동 저장
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );

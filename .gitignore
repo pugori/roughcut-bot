@@ -7,6 +7,7 @@ __pycache__/
 # Build & distribution
 build/
 dist/
+dist_release/
 native_src/target/
 *.egg-info/
 *.spec.bak

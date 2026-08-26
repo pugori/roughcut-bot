@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChannelDNA Studio - 로컬 툴 데스크톱 UI 프리뷰</title>
+  <style>
+    :root {
+      --bg-window: #0c1017;
+      --bg-sidebar: #090c12;
+      --bg-panel: #121824;
+      --bg-panel-sub: #182234;
+      --border-color: #212c3f;
+      --border-focus: #38bdf8;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-sub: #64748b;
+      --accent-blue: #0284c7;
+      --accent-cyan: #38bdf8;
+      --accent-green: #10b981;
+      --accent-yellow: #fbbf24;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      background: #05070a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+      color: var(--text-main);
+    }
+
+    /* Window Frame */
+    .app-window {
+      width: 100%;
+      max-width: 960px;
+      background: var(--bg-window);
+      border: 1px solid #2d3748;
+      border-radius: 12px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Window Titlebar */
+    .titlebar {
+      height: 38px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      user-select: none;
+    }
+    .titlebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #cbd5e1;
+    }
+    .brand-icon {
+      width: 18px;
+      height: 18px;
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #fff;
+    }
+    .titlebar-controls {
+      display: flex;
+      gap: 12px;
+      color: #64748b;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* Top Tab Navigation */
+    .nav-tabs-bar {
+      background: #0f1522;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      padding: 0 20px;
+      gap: 8px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 12px 20px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { color: #fff; }
+    .tab-btn.active {
+      color: var(--accent-cyan);
+      border-bottom-color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.05);
+    }
+
+    /* Main Content Body */
+    .app-body {
+      padding: 24px 28px;
+      min-height: 520px;
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; animation: fadeIn 0.2s ease; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Form & Components */
+    .form-group { margin-bottom: 18px; }
+    .form-label { font-size: 13px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+
+    /* Dropzone */
+    .file-dropzone {
+      background: #0d1320;
+      border: 2px dashed #2d3b55;
+      border-radius: 10px;
+      padding: 22px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .file-dropzone:hover { border-color: var(--accent-cyan); background: #101828; }
+    .dropzone-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .dropzone-sub { font-size: 12px; color: var(--text-sub); }
+    .selected-file-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #182238;
+      border: 1px solid var(--accent-blue);
+      padding: 6px 14px;
+      border-radius: 18px;
+      font-size: 12px;
+      color: #fff;
+      margin-top: 10px;
+    }
+
+    .form-select, .form-input {
+      width: 100%;
+      background: #0d1320;
+      border: 1px solid #2d3b55;
+      border-radius: 8px;
+      color: #f8fafc;
+      padding: 10px 14px;
+      font-size: 13px;
+      outline: none;
+    }
+    .form-select:focus, .form-input:focus { border-color: var(--accent-cyan); }
+
+    /* Broadcast Mode Cards */
+    .mode-select-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .mode-card {
+      background: #0d1320;
+      border: 2px solid #2d3b55;
+      border-radius: 10px;
+      padding: 16px 18px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-card.selected {
+      border-color: var(--accent-blue);
+      background: rgba(2, 132, 199, 0.12);
+      box-shadow: 0 0 12px rgba(2, 132, 199, 0.2);
+    }
+    .mode-card-title { font-size: 14px; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .mode-card.selected .mode-card-title { color: var(--accent-cyan); }
+    .mode-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+    /* Action Button */
+    .btn-action-primary {
+      width: 100%;
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #fff;
+      border: none;
+      padding: 15px 20px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 16px rgba(2, 132, 199, 0.35);
+      transition: all 0.2s;
+    }
+    .btn-action-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn-action-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* Progress & Result */
+    .progress-box {
+      background: #090e18;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin-top: 20px;
+      display: none;
+    }
+    .progress-track { width: 100%; height: 6px; background: #1a2336; border-radius: 3px; overflow: hidden; margin: 12px 0; }
+    .progress-fill { width: 0%; height: 100%; background: var(--accent-cyan); transition: width 0.3s ease; }
+    .step-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; text-align: center; }
+    .step-item { background: #141c2d; padding: 6px; border-radius: 4px; color: var(--text-sub); }
+    .step-item.active { background: rgba(2, 132, 199, 0.2); color: var(--accent-cyan); font-weight: 700; }
+
+    .result-banner {
+      background: rgba(6, 78, 59, 0.35);
+      border: 1px solid var(--accent-green);
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin-top: 20px;
+      display: none;
+      animation: fadeIn 0.2s ease;
+    }
+    .btn-open-folder {
+      background: #059669;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    /* Sub Pane 2: Profile Management */
+    .profile-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .input-box { background: #0d1320; border: 1px solid #2d3b55; border-radius: 8px; padding: 14px; }
+    .input-textarea {
+      width: 100%;
+      background: #070a12;
+      border: 1px solid #1e283d;
+      border-radius: 6px;
+      color: #f8fafc;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-family: monospace;
+      resize: vertical;
+      outline: none;
+    }
+    .btn-sub-action {
+      width: 100%;
+      background: #182238;
+      border: 1px solid var(--accent-blue);
+      color: var(--accent-cyan);
+      padding: 11px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .profile-card-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .profile-card-item {
+      background: #0d1320;
+      border: 1px solid #2d3b55;
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: opacity 0.3s ease;
+    }
+    .btn-del-profile {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .btn-del-profile:hover { background: #ef4444; color: #fff; }
+
+    /* Window Statusbar */
+    .statusbar {
+      height: 28px;
+      background: var(--bg-sidebar);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 11px;
+      color: var(--text-sub);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-window">
+    <!-- Window Titlebar -->
+    <div class="titlebar">
+      <div class="titlebar-brand">
+        <div class="brand-icon">🎬</div>
+        <span>ChannelDNA Studio v2.0 (로컬 포터블 에디션)</span>
+      </div>
+      <div class="titlebar-controls">
+        <span>─</span>
+        <span>□</span>
+        <span>✕</span>
+      </div>
+    </div>
+
+    <!-- Top 2-Tab Navigation Bar -->
+    <div class="nav-tabs-bar">
+      <button class="tab-btn active" id="tab-btn-cut" onclick="switchAppTab('cut')">
+        <span>🎬</span> VOD 자동 가편집
+      </button>
+      <button class="tab-btn" id="tab-btn-prof" onclick="switchAppTab('prof')">
+        <span>👤</span> 발화 프로필 관리 (3+3 등록)
+      </button>
+    </div>
+
+    <!-- Main App Body -->
+    <div class="app-body">
+      <!-- TAB 1: VOD AUTOMATIC ROUGH CUT -->
+      <div id="pane-cut" class="tab-pane active">
+        <!-- 1. Video Selection -->
+        <div class="form-group">
+          <label class="form-label"><span>📂 1. 가편집 대상 VOD 영상 선택</span></label>
+          <div class="file-dropzone" onclick="toggleFileBadge()">
+            <div style="font-size: 26px; margin-bottom: 4px;">📂</div>
+            <div class="dropzone-title">클릭하여 로컬 영상 파일 선택 (.mp4, .mkv, .mov)</div>
+            <div class="dropzone-sub">또는 여기에 영상 파일을 드래그 앤 드롭하세요</div>
+            <div class="selected-file-badge">
+              <span>🎥</span><strong id="app-selected-filename">20260826_생방송_풀버전.mp4</strong>
+              <span style="color: var(--accent-cyan); font-size: 11px;">(4.2 GB)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Profile Selection Dropdown -->
+        <div class="form-group">
+          <label class="form-label"><span>🎯 2. 적용할 스트리머 발화 프로필 선택</span></label>
+          <select class="form-select">
+            <option>하이텐션 게임 방송 스타일 (ASL: 3.8s / 무음 임계치: -34.5 dB)</option>
+            <option>잔잔한 토크/소통 방송 스타일 (ASL: 4.2s / 무음 임계치: -32.0 dB)</option>
+            <option>다인 음성 합방 전용 스타일 (ASL: 2.2s / 다인 클러스터링 모드)</option>
+          </select>
+        </div>
+
+        <!-- 3. Broadcast Mode Selection Cards -->
+        <div class="form-group">
+          <label class="form-label"><span>👥 3. 방송 유형(모드) 선택</span></label>
+          <div class="mode-select-grid">
+            <div class="mode-card selected" id="mode-collab" onclick="selectAppMode('collab')">
+              <div class="mode-card-title">
+                <span>👥 합방 / 콜라보 모드</span>
+                <span style="font-size: 10px; background: rgba(56,189,248,0.2); color: var(--accent-cyan); padding: 2px 6px; border-radius: 4px;">다인 대화</span>
+              </div>
+              <div class="mode-card-desc">
+                화자 분리 클러스터링 적용 · 독립 자막 트랙(V2: 메인 화자, V3: 게스트 1, V4: 게스트 2) 분리 생성
+              </div>
+            </div>
+
+            <div class="mode-card" id="mode-solo" onclick="selectAppMode('solo')">
+              <div class="mode-card-title">
+                <span>🎤 솔로 방송 모드</span>
+                <span style="font-size: 10px; background: #2d3b55; color: #cbd5e1; padding: 2px 6px; border-radius: 4px;">단독 방송</span>
+              </div>
+              <div class="mode-card-desc">
+                1인 단독 호흡 기준 무음 컷팅 · 메인 화자 단일 자막 트랙(V2) 생성
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Action Button -->
+        <button type="button" class="btn-action-primary" id="btn-run-app" onclick="startAppProcess()">
+          <span>🚀</span> <span id="app-btn-label">[합방 모드] VOD 무음 컷팅 & 화자 분리 XML 생성 시작</span>
+        </button>
+
+        <!-- Progress Box -->
+        <div class="progress-box" id="app-progress-box">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: #cbd5e1;">
+            <span id="app-progress-status">오디오 음향 VAD 분석 중...</span>
+            <span id="app-progress-pct" style="color: var(--accent-cyan); font-weight: 700;">0%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="app-progress-fill"></div></div>
+          <div class="step-grid" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="step-item" id="app-step-0">[0/3] 📥 AI 모델 다운로드</div>
+            <div class="step-item" id="app-step-1">[1/3] 🎧 오디오 VAD 컷팅</div>
+            <div class="step-item" id="app-step-2">[2/3] ✂️ 화자 클러스터링</div>
+            <div class="step-item" id="app-step-3">[3/3] 📄 FCPXML 생성</div>
+          </div>
+        </div>
+
+        <!-- Result Box -->
+        <div class="result-banner" id="app-result-box">
+          <div style="font-weight: 700; color: #6ee7b7; font-size: 14px; margin-bottom: 4px;">
+            가편집 시퀀스 및 XML/SRT 생성이 완료되었습니다.
+          </div>
+          <div style="font-size: 12px; color: #d1fae5; line-height: 1.6;">
+            • 원본 4시간 12분 중 무음 구간 절삭 완료 (가편집 분량: 1시간 18분)<br>
+            • 화자별 자막 트랙: V2(메인 화자), V3(게스트 1), V4(게스트 2) 분리 배치<br>
+            • 생성된 XML을 비선형 편집기(NLE)로 드래그하여 즉시 본편집을 시작하세요.
+          </div>
+          <button type="button" class="btn-open-folder" onclick="toggleFolderMsg()">
+            <span>📂</span> 생성된 가편집 폴더 열기
+          </button>
+          <div id="app-folder-msg" style="font-size: 11px; color: #a7f3d0; margin-top: 6px; display: none;">
+            📌 <code>C:\dna\output\20260826_생방송_풀버전\</code> 폴더에 XML/SRT 파일이 저장되었습니다.
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: PROFILE MANAGEMENT (3+3) -->
+      <div id="pane-prof" class="tab-pane">
+        <div style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 14px;">
+          ➕ 새 발화 프로필 등록 (솔로 3편 + 합방 3편 유튜브 링크 기반 파라미터 산출)
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">프로필 이름 (식별용 라벨)</label>
+          <input type="text" class="form-input" value="하이텐션 게임 방송 스타일" placeholder="예: 하이텐션 게임용, 잔잔 토크용">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">방송 채널 링크 (선택 입력)</label>
+          <input type="text" class="form-input" value="https://chzzk.naver.com/46c59b2075a31b40248..." placeholder="https://chzzk.naver.com/...">
+        </div>
+
+        <div class="profile-grid-2col">
+          <div class="input-box">
+            <div style="font-size: 12px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">🎤 단독 방송 유튜브 링크 3개</div>
+            <textarea class="input-textarea" rows="3">https://youtube.com/watch?v=sample_solo_01&#10;https://youtube.com/watch?v=sample_solo_02&#10;https://youtube.com/watch?v=sample_solo_03</textarea>
+          </div>
+          <div class="input-box">
+            <div style="font-size: 12px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">👥 합방 / 콜라보 유튜브 링크 3개</div>
+            <textarea class="input-textarea" rows="3">https://youtube.com/watch?v=sample_collab_01&#10;https://youtube.com/watch?v=sample_collab_02&#10;https://youtube.com/watch?v=sample_collab_03</textarea>
+          </div>
+        </div>
+
+        <button type="button" class="btn-sub-action" onclick="showProfileSavedMsg()">
+          <span>🔍</span> 3+3 영상 분석 및 프로필 생성 시작
+        </button>
+
+        <div id="prof-saved-alert" style="background: rgba(2,132,199,0.15); border: 1px solid var(--accent-blue); padding: 10px 14px; border-radius: 6px; margin-top: 12px; font-size: 12px; color: #38bdf8; display: none;">
+          ✅ 영상 음향 분석이 완료되어 새 발화 프로필이 로컬에 안전하게 저장되었습니다.
+        </div>
+
+        <div style="margin-top: 24px;">
+          <div style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 8px;">📋 등록 프로필 목록</div>
+          <div class="profile-card-list">
+            <div class="profile-card-item" id="p-card-1">
+              <div>
+                <div style="font-weight: 700; color: #fff; font-size: 13px;">하이텐션 게임 방송 스타일</div>
+                <div style="font-size: 11px; color: #94a3b8;">ASL 3.8s · 무음 임계치 -34.5 dB · 텐션 주기 45s</div>
+              </div>
+              <button type="button" class="btn-del-profile" onclick="document.getElementById('p-card-1').remove()">삭제</button>
+            </div>
+            <div class="profile-card-item" id="p-card-2">
+              <div>
+                <div style="font-weight: 700; color: #fff; font-size: 13px;">잔잔한 토크/소통 방송 스타일</div>
+                <div style="font-size: 11px; color: #94a3b8;">ASL 4.2s · 무음 임계치 -32.0 dB · 텐션 주기 50s</div>
+              </div>
+              <button type="button" class="btn-del-profile" onclick="document.getElementById('p-card-2').remove()">삭제</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Window Statusbar -->
+    <div class="statusbar">
+      <span>Ready · 100% Local Offline Sandbox</span>
+      <span>FCP7 XML (xmeml v4) Engine</span>
+    </div>
+  </div>
+
+  <script>
+    function switchAppTab(tab) {
+      document.getElementById('pane-cut').classList.remove('active');
+      document.getElementById('pane-prof').classList.remove('active');
+      document.getElementById('tab-btn-cut').classList.remove('active');
+      document.getElementById('tab-btn-prof').classList.remove('active');
+
+      if (tab === 'cut') {
+        document.getElementById('pane-cut').classList.add('active');
+        document.getElementById('tab-btn-cut').classList.add('active');
+      } else {
+        document.getElementById('pane-prof').classList.add('active');
+        document.getElementById('tab-btn-prof').classList.add('active');
+      }
+    }
+
+    function selectAppMode(mode) {
+      document.getElementById('mode-collab').classList.remove('selected');
+      document.getElementById('mode-solo').classList.remove('selected');
+
+      if (mode === 'collab') {
+        document.getElementById('mode-collab').classList.add('selected');
+        document.getElementById('app-btn-label').innerText = '[합방 모드] VOD 무음 컷팅 & 화자 분리 XML 생성 시작';
+      } else {
+        document.getElementById('mode-solo').classList.add('selected');
+        document.getElementById('app-btn-label').innerText = '[솔로 모드] 1인 호흡 기준 무음 컷팅 & 단일 자막 XML 생성';
+      }
+    }
+
+    let toggleFile = true;
+    function toggleFileBadge() {
+      toggleFile = !toggleFile;
+      document.getElementById('app-selected-filename').innerText = toggleFile ? '20260826_생방송_풀버전.mp4' : '20260825_대규모합방.mov';
+    }
+
+    function showProfileSavedMsg() {
+      const el = document.getElementById('prof-saved-alert');
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 3000);
+    }
+
+    function toggleFolderMsg() {
+      const el = document.getElementById('app-folder-msg');
+      el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function startAppProcess() {
+      const btn = document.getElementById('btn-run-app');
+      const box = document.getElementById('app-progress-box');
+      const res = document.getElementById('app-result-box');
+      const fill = document.getElementById('app-progress-fill');
+      const pctLbl = document.getElementById('app-progress-pct');
+      const statusLbl = document.getElementById('app-progress-status');
+
+      btn.disabled = true;
+      res.style.display = 'none';
+      box.style.display = 'block';
+
+      let pct = 0;
+      const interval = setInterval(() => {
+        pct += 10;
+        fill.style.width = pct + '%';
+        pctLbl.innerText = pct + '%';
+
+        if (pct === 10) {
+          document.getElementById('app-step-0').classList.add('active');
+          statusLbl.innerText = '[0/3] [최초 1회] 로컬 AI 모델 다운로드 중 (오픈소스 CDN: 약 480MB)...';
+        } else if (pct === 30) {
+          document.getElementById('app-step-0').classList.remove('active');
+          document.getElementById('app-step-1').classList.add('active');
+          statusLbl.innerText = '[1/3] 오디오 VAD 음향 에너지 분석 및 무음 구간 컷팅 중...';
+        } else if (pct === 60) {
+          document.getElementById('app-step-1').classList.remove('active');
+          document.getElementById('app-step-2').classList.add('active');
+          statusLbl.innerText = '[2/3] 화자별 에너지 클러스터링 및 자막 분리 중...';
+        } else if (pct === 90) {
+          document.getElementById('app-step-2').classList.remove('active');
+          document.getElementById('app-step-3').classList.add('active');
+          statusLbl.innerText = '[3/3] FCPXML (xmeml v4) 시퀀스 및 SRT 파일 작성 중...';
+        } else if (pct >= 100) {
+          clearInterval(interval);
+          document.getElementById('app-step-3').classList.remove('active');
+          btn.disabled = false;
+          box.style.display = 'none';
+          res.style.display = 'block';
+        }
+      }, 200);
+    }
+  </script>
+</body>
+</html>
