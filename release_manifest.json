@@ -3,7 +3,7 @@
   "app_name": "ChannelDNA Studio",
   "release_tag": "v2.0.0",
   "encrypted_payload": "app.enc",
-  "payload_sha256": "cc9e81055bfb5eb838b1267b3130bdd3fc33c00808c85e371a326fb03d1cad10",
+  "payload_sha256": "bf60de96f93b0c2d525692490cd569c6c777e12b6c4dfe1e4a29aada55906be2",
   "zero_cost_hosting": "GitHub Releases CDN",
   "runtime_execution": "100% In-Memory RAM Decryption (Zero Disk Trace)"
 }
