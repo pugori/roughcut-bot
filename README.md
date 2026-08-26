@@ -1,7 +1,7 @@
 # 🎬 ChannelDNA Studio
 
 <p align="center">
-  <a href="https://pugori.github.io/roughcut-bot/"><strong>🌐 공식 웹사이트 바로가기</strong></a> •
+  <a href="https://pugori.github.io/channeldna-studio/"><strong>🌐 공식 웹사이트 바로가기</strong></a> •
   <a href="https://github.com/pugori/roughcut-bot/releases/latest"><strong>📦 최신 버전 다운로드</strong></a>
 </p>
 
