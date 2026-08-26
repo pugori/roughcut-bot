@@ -31,3 +31,18 @@ oracle_cloud_bundle.zip
 venv/
 .venv/
 
+# Private Source Code (Encrypted Release Only)
+channel_dna/
+bot/
+src/
+src-tauri/
+modal_app.py
+scripts/admin_cli.py
+scripts/build_encrypted_release.py
+package-lock.json
+package.json
+postcss.config.js
+tsconfig.json
+vite.config.ts
+tailwind.config.js
+index.html
