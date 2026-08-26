@@ -199,9 +199,9 @@ async def handle_payapp_webhook(request):
 
         # PayApp state '4' typically means successful payment
         if state == "4" and discord_user_id.isdigit():
-            # Conversion: 1000 KRW = 1 Credit
+            # Conversion: 3000 KRW = 1 Credit
             amount = int(float(price))
-            credits_to_add = amount // 1000
+            credits_to_add = amount // 3000
             
             if credits_to_add > 0:
                 new_bal = db.add_user_credits(
@@ -669,16 +669,16 @@ async def cmd_my_credits(interaction: discord.Interaction):
     description="가편집 크레딧을 충전하기 위한 페이앱 결제 링크를 생성합니다.",
 )
 @app_commands.describe(
-    amount="충전할 크레딧 수량 (1크레딧 = 1,000원)"
+    amount="충전할 크레딧 수량 (1크레딧 = 3,000원)"
 )
 async def cmd_charge_credits(interaction: discord.Interaction, amount: int):
     if amount < 1:
         await interaction.response.send_message("❌ 최소 1크레딧 이상 충전해야 합니다.", ephemeral=True)
         return
 
-    price = amount * 1000
-    if price < 1000:
-        await interaction.response.send_message("❌ 페이앱 결제 최소 금액은 1,000원입니다.", ephemeral=True)
+    price = amount * 3000
+    if price < 3000:
+        await interaction.response.send_message("❌ 페이앱 결제 최소 금액은 3,000원입니다.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
