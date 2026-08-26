@@ -19,3 +19,7 @@ MIN_VOD_DURATION_SEC = 1200  # 20 minutes
 
 # Cloud vs Local Pipeline Engine (Default: True with NVIDIA L4 GPU)
 USE_MODAL_CLOUD = os.environ.get("USE_MODAL_CLOUD", "1").lower() in ("1", "true")
+
+# PayApp Credentials
+PAYAPP_USERID = os.environ.get("PAYAPP_USERID", "noir40")
+PAYAPP_LINKKEY = os.environ.get("PAYAPP_LINKKEY", "QweLq07yVKxJ1Wf9ABo3jO1DPJnCCRVaOgT+oqg6zaM=")

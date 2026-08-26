@@ -660,8 +660,67 @@ async def cmd_my_credits(interaction: discord.Interaction):
 {free_info}
 • **보유 크레딧 잔액:** `{summary['credits']}개` (1회 가편집 = 1크레딧)
 
-💡 *크레딧 충전이 필요하신 경우 웹 결제 사이트 또는 관리자에게 문의해 주세요.*"""
+💡 *크레딧 충전이 필요하신 경우 `/크레딧충전` 명령어를 사용해주세요.*"""
     await interaction.response.send_message(msg, ephemeral=True)
+
+
+@bot.tree.command(
+    name="크레딧충전",
+    description="가편집 크레딧을 충전하기 위한 페이앱 결제 링크를 생성합니다.",
+)
+@app_commands.describe(
+    amount="충전할 크레딧 수량 (1크레딧 = 1,000원)"
+)
+async def cmd_charge_credits(interaction: discord.Interaction, amount: int):
+    if amount < 1:
+        await interaction.response.send_message("❌ 최소 1크레딧 이상 충전해야 합니다.", ephemeral=True)
+        return
+
+    price = amount * 1000
+    if price < 1000:
+        await interaction.response.send_message("❌ 페이앱 결제 최소 금액은 1,000원입니다.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    import aiohttp
+    import urllib.parse
+    
+    url = "https://api.payapp.kr/oapi/apiLoad.html"
+    payload = {
+        "cmd": "payrequest",
+        "userid": config.PAYAPP_USERID,
+        "linkkey": config.PAYAPP_LINKKEY,
+        "goodname": f"채널DNA 가편집 크레딧 {amount}개 충전",
+        "price": str(price),
+        "recvphone": "01000000000",
+        "smsuse": "n",
+        "var1": str(interaction.user.id),
+        "feedbackurl": "https://roughcut-bot.onrender.com/api/payapp/webhook"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=payload) as resp:
+                text = await resp.text()
+                # Parse query string format response
+                parsed = dict(urllib.parse.parse_qsl(text))
+                
+                if parsed.get("state") == "1" and "payurl" in parsed:
+                    payurl = parsed["payurl"]
+                    msg = (
+                        f"💰 **크레딧 충전 결제 링크가 생성되었습니다!**\n\n"
+                        f"• **충전 크레딧:** {amount}개\n"
+                        f"• **결제 금액:** {price:,}원\n\n"
+                        f"👉 [**여기**]({payurl})를 클릭하여 결제를 진행해 주세요.\n"
+                        f"*결제가 완료되면 봇이 자동으로 확인 후 크레딧을 충전해 드립니다.*"
+                    )
+                    await interaction.followup.send(msg)
+                else:
+                    error_msg = parsed.get("errorMessage", "알 수 없는 오류")
+                    await interaction.followup.send(f"❌ **결제 링크 생성에 실패했습니다.**\n사유: {error_msg}")
+    except Exception as e:
+        await interaction.followup.send(f"❌ **서버 통신 오류가 발생했습니다.**\n{e}")
 
 
 @bot.tree.command(
