@@ -135,8 +135,6 @@ class PremiereXmlExporter:
         fps: float = 60.0,
         export_format: str = "xml",
         video_file_name: str | None = None,
-        subtitles: list[SubtitleItem] | None = None,
-        profile_type: str = "solo",
     ) -> Path:
         out_file = Path(output_path)
         out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -235,18 +233,6 @@ class PremiereXmlExporter:
 
         # V1: Video Cut Track
         v1_track_r = ET.SubElement(v_media_r, "track")
-
-        # V2, V3, V4: Subtitle Video Tracks
-        v2_track_r = None
-        v3_track_r = None
-        v4_track_r = None
-        is_collab = profile_type == "collab" or "_Collab" in clean_stem
-
-        if subtitles:
-            v2_track_r = ET.SubElement(v_media_r, "track")
-            if is_collab:
-                v3_track_r = ET.SubElement(v_media_r, "track")
-                v4_track_r = ET.SubElement(v_media_r, "track")
 
         # Audio Media Tracks
         a_media_r = ET.SubElement(seq_r_media, "audio")
@@ -367,47 +353,7 @@ class PremiereXmlExporter:
             ET.SubElement(la2_a2, "trackindex").text = "2"
             ET.SubElement(la2_a2, "clipindex").text = str(i)
             ET.SubElement(la2_a2, "groupindex").text = "1"
-
             current_timeline_frame += dur_f
-
-        # Populate Subtitle Tracks (V2: Streamer/Speaker1, V3: Speaker2, V4: Speaker3/Donation)
-        if subtitles:
-            for s_idx, s in enumerate(subtitles, 1):
-                s_st_frame = max(0, int(round(s.start_time * fps)))
-                s_et_frame = min(current_timeline_frame, int(round(s.end_time * fps)))
-                if s_et_frame <= s_st_frame:
-                    s_et_frame = min(current_timeline_frame, s_st_frame + max(1, int(round(0.4 * fps))))
-                if s_et_frame <= s_st_frame:
-                    continue
-
-                raw_text = s.text.strip()
-                clean_text = re.sub(r"^\[(화자 \d|도네)\]\s*", "", raw_text).strip()
-                if not clean_text:
-                    clean_text = raw_text
-
-                # Speaker track routing
-                target_track = v2_track_r
-                track_label = "v2"
-
-                if is_collab:
-                    if "[화자 2]" in raw_text or "🗣️ [화자 2]" in raw_text:
-                        target_track = v3_track_r if v3_track_r is not None else v2_track_r
-                        track_label = "v3"
-                    elif "[도네]" in raw_text or "[화자 3]" in raw_text:
-                        target_track = v4_track_r if v4_track_r is not None else v2_track_r
-                        track_label = "v4"
-
-                if target_track is not None:
-                    self._create_text_clipitem(
-                        parent_track=target_track,
-                        clip_id=f"clip-sub-{track_label}-{s_idx}",
-                        text=clean_text,
-                        start_frame=s_st_frame,
-                        end_frame=s_et_frame,
-                        timebase=timebase,
-                        is_ntsc=is_ntsc,
-                        total_frames=total_frames,
-                    )
 
         ET.SubElement(seq_rough, "duration").text = str(current_timeline_frame)
 
@@ -416,4 +362,5 @@ class PremiereXmlExporter:
         ET.indent(tree, space="  ", level=0)
         tree.write(str(out_file), encoding="utf-8", xml_declaration=True)
         return out_file
+
 

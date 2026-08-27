@@ -359,3 +359,4 @@ class KoreanSentenceFormatter:
             lines.append(" ".join(cur_line))
 
         return "\n".join(lines[: self.max_lines])
+

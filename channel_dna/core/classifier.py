@@ -220,3 +220,4 @@ def classify_chzzk_vod(
             return "collab", 0.85, f"실시간 채팅창에서 합방 관련 대화 다수 감지 ({collab_chat_count}회)"
 
     return "solo", 0.80, "솔로 방송 패턴 일치"
+

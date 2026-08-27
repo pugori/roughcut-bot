@@ -167,3 +167,4 @@ class VisionEmotionEngine:
             norm_visual = visual_scores
 
         return norm_visual[: int(duration_sec)]
+

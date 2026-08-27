@@ -487,3 +487,4 @@ class VideoExtractor:
                 )
             finally:
                 gc.collect()
+

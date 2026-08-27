@@ -61,8 +61,8 @@ class ChannelProfile:
     sample_count: int = 1
     avg_shot_length: float = 3.5  # Average shot duration (seconds)
     tension_interval: float = 45.0  # Dominant tension peak interval (seconds)
-    silence_tolerance: float = 0.8  # Max allowed silence before cut (seconds)
-    highlight_rms_threshold: float = 0.95  # Tension z-score threshold for highlight
+    silence_tolerance: float = 1.2  # Max allowed silence before cut (seconds)
+    highlight_rms_threshold: float = 0.15  # Tension z-score threshold for highlight
     hook_duration: float = 15.0  # Recommended intro hook length (seconds)
     custom_vocab: str = ""  # Channel-specific hotwords, memes, and gaming keywords
     motif_template: list[float] | None = None  # Normalized 32-point build-up/climax curve
@@ -234,11 +234,11 @@ ProgressCallback = Callable[[str, float, str], None]
 
 
 PSYCHOLOGY_SOLO_PROFILE = ChannelProfile(
-    profile_id="PSYCHOLOGY_SOLO",
+    profile_id="solo_base",
     channel_name="PSYCHOLOGY_SOLO",
     avg_shot_length=3.8,
-    silence_tolerance=0.8,
-    highlight_rms_threshold=0.95,
+    silence_tolerance=1.2,
+    highlight_rms_threshold=0.15,
     profile_type="solo",
     speech_density_weight=0.65,
     laughter_sensitivity=1.20,
@@ -249,10 +249,11 @@ PSYCHOLOGY_COLLAB_PROFILE = ChannelProfile(
     profile_id="PSYCHOLOGY_COLLAB",
     channel_name="PSYCHOLOGY_COLLAB",
     avg_shot_length=2.2,
-    silence_tolerance=1.2,
-    highlight_rms_threshold=1.10,
+    silence_tolerance=1.5,
+    highlight_rms_threshold=0.20,
     profile_type="collab",
     speech_density_weight=0.50,
     laughter_sensitivity=1.35,
     narrative_quota={"intro": 0.30, "body": 0.50, "outro": 0.20},
 )
+

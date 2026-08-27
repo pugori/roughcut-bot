@@ -9,6 +9,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from dataclasses import dataclass
+
+
+@dataclass
+class VodMetadata:
+    video_no: str | None
+    broadcast_date: str
+    broadcast_title: str
+    streamer_name: str
+
+
 from channel_dna.core.db import DBManager
 from channel_dna.core.models import (
     ChannelProfile,
@@ -201,8 +212,9 @@ class PipelineFacade:
         generate_subtitles: bool = True,
         scan_mode: str = "dna_solo",
         progress_cb: ProgressCallback | None = None,
-        on_complete: Callable[[list[ScanMarker], list[SubtitleItem]], None]
-        | None = None,
+        on_complete: (
+            Callable[[list[ScanMarker], list[SubtitleItem]], None] | None
+        ) = None,
         on_error: Callable[[Exception], None] | None = None,
         cancel_event: threading.Event | None = None,
         expected_duration_sec: float | None = None,
@@ -218,41 +230,33 @@ class PipelineFacade:
                     PSYCHOLOGY_SOLO_PROFILE,
                 )
 
-                prof_target = dna_profile_name or channel_name
-                streamer_profile = self.db.get_profile(prof_target)
+                prof_target = (dna_profile_name or channel_name or "").strip()
+                if not prof_target or prof_target in ("기본 프로필", "Default"):
+                    raise ValueError(
+                        "선택된 채널 프로필이 없습니다. 먼저 [프로필 등록]을 진행해 주세요."
+                    )
+
+                base_ch = prof_target.replace("_Solo", "").replace("_Collab", "")
+                solo_p = self.db.get_profile(f"{base_ch}_Solo")
+                collab_p = self.db.get_profile(f"{base_ch}_Collab")
+                streamer_profile = (
+                    self.db.get_profile(prof_target) or solo_p or collab_p
+                )
+
                 if not streamer_profile:
-                    streamer_profile = self.profiler.derive_profile(prof_target)
+                    raise ValueError(
+                        f"채널 프로필 '{prof_target}'을(를) 찾을 수 없습니다. 먼저 프로필을 등록/추출해 주세요."
+                    )
 
                 # Route requested weighting mode
                 clean_scan_mode = scan_mode.lower()
-                if "psychology_solo" in clean_scan_mode:
-                    import copy
-
-                    profile = copy.deepcopy(PSYCHOLOGY_SOLO_PROFILE)
-                    if streamer_profile and streamer_profile.custom_vocab:
-                        profile.custom_vocab = streamer_profile.custom_vocab
-                    target_scan_mode = "solo"
-                elif "psychology_collab" in clean_scan_mode:
-                    import copy
-
-                    profile = copy.deepcopy(PSYCHOLOGY_COLLAB_PROFILE)
-                    if streamer_profile and streamer_profile.custom_vocab:
-                        profile.custom_vocab = streamer_profile.custom_vocab
-                        profile.host_voice_print = streamer_profile.host_voice_print
-                    target_scan_mode = "collab"
-                elif "dna_collab" in clean_scan_mode or clean_scan_mode == "collab":
-                    base_ch = prof_target.replace("_Solo", "").replace("_Collab", "")
-                    collab_p = self.db.get_profile(f"{base_ch}_Collab")
+                if "collab" in clean_scan_mode:
                     profile = collab_p or streamer_profile
-                    if profile:
-                        profile.profile_type = "collab"
+                    profile.profile_type = "collab"
                     target_scan_mode = "collab"
                 else:
-                    base_ch = prof_target.replace("_Solo", "").replace("_Collab", "")
-                    solo_p = self.db.get_profile(f"{base_ch}_Solo")
                     profile = solo_p or streamer_profile
-                    if profile:
-                        profile.profile_type = "solo"
+                    profile.profile_type = "solo"
                     target_scan_mode = "solo"
 
                 markers = self.scanner.scan(
@@ -438,7 +442,9 @@ class PipelineFacade:
                 rough_subs = None
                 if subtitles:
                     if progress_cb:
-                        progress_cb("Export", 0.70, "공용 초벌 자막 및 타임라인 동기화 중...")
+                        progress_cb(
+                            "Export", 0.70, "공용 초벌 자막 및 타임라인 동기화 중..."
+                        )
                     rough_subs = self.subtitle_engine.map_subtitles_to_rough_cut(
                         subtitles, markers, fps=60.0
                     )
@@ -489,7 +495,6 @@ class PipelineFacade:
                     subtitles=rough_subs,
                     profile_type=p_type,
                 )
-
 
                 # Generate clean studio notice & usage guide document
                 if progress_cb:
@@ -616,8 +621,9 @@ class PipelineFacade:
         max_videos: int = 5,
         sort_by: str = "popular",
         progress_cb: ProgressCallback | None = None,
-        on_video_complete: Callable[[int, int, VideoAnalysisResult], None]
-        | None = None,
+        on_video_complete: (
+            Callable[[int, int, VideoAnalysisResult], None] | None
+        ) = None,
         on_all_complete: Callable[[int], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
     ) -> threading.Thread:
@@ -693,7 +699,9 @@ class PipelineFacade:
                         is_complete = False
                         with self.db._get_connection() as conn:
                             if v_id:
-                                is_complete = self.db.is_video_analysis_complete(conn, v_id)
+                                is_complete = self.db.is_video_analysis_complete(
+                                    conn, v_id
+                                )
 
                         if is_complete:
                             skipped_count += 1
@@ -706,7 +714,10 @@ class PipelineFacade:
                             continue
 
                         result = self.extractor.analyze(
-                            v_url, clean_channel_name, is_url=True, progress_cb=item_progress
+                            v_url,
+                            clean_channel_name,
+                            is_url=True,
+                            progress_cb=item_progress,
                         )
                         self.db.save_video_analysis(result.metadata, result.segments)
                         saved_count += 1
@@ -795,7 +806,9 @@ class PipelineFacade:
     ) -> Path:
         """Exports profile to a standalone local_profile.json file."""
         if isinstance(channel_name_or_profile, str):
-            prof = self.db.get_profile(channel_name_or_profile) or self.profiler.derive_profile(channel_name_or_profile)
+            prof = self.db.get_profile(
+                channel_name_or_profile
+            ) or self.profiler.derive_profile(channel_name_or_profile)
         else:
             prof = channel_name_or_profile
         return self.profiler.export_to_json(prof, output_path)
@@ -822,9 +835,360 @@ class PipelineFacade:
     def export_subtitles(self, subtitles: list[SubtitleItem], output_path: str) -> str:
         return str(self.subtitle_engine.export_srt(subtitles, output_path))
 
-
     def derive_two_track_profiles(
         self, channel_name: str
     ) -> tuple[ChannelProfile, ChannelProfile]:
         return self.profiler.derive_two_track_profiles(channel_name)
 
+    def _fetch_vod_metadata(
+        self, vod_url_or_no: str, streamer_name: str
+    ) -> VodMetadata:
+        """Extracts video ID and fetches metadata from Chzzk."""
+        from channel_dna.core.chzzk_client import (
+            extract_chzzk_video_no,
+            fetch_chzzk_video_meta,
+        )
+
+        broadcast_date = "20260825"
+        broadcast_title = "치지직 다시보기"
+        target_streamer = streamer_name.strip() if streamer_name else "스트리머"
+        v_no = extract_chzzk_video_no(vod_url_or_no)
+
+        if v_no:
+            meta = fetch_chzzk_video_meta(v_no)
+            if meta:
+                if meta.get("date_str"):
+                    broadcast_date = meta["date_str"]
+                if meta.get("title"):
+                    broadcast_title = meta["title"]
+                if not streamer_name and meta.get("channel_name"):
+                    target_streamer = meta["channel_name"]
+
+        return VodMetadata(
+            video_no=v_no,
+            broadcast_date=broadcast_date,
+            broadcast_title=broadcast_title,
+            streamer_name=target_streamer,
+        )
+
+    def _resolve_streamer_profiles(
+        self,
+        target_streamer: str,
+        solo_profile: dict[str, Any] | None,
+        collab_profile: dict[str, Any] | None,
+    ) -> tuple[Any, Any]:
+        """Resolves Solo and Collab DNA Profiles dynamically from DB or overrides."""
+        from channel_dna.core.models import ChannelProfile
+
+        solo_p = None
+        collab_p = None
+
+        if solo_profile:
+            solo_p = ChannelProfile.from_dict(solo_profile)
+        else:
+            db_solo = self.db.get_profile(
+                f"{target_streamer}_Solo"
+            ) or self.db.get_profile(target_streamer)
+            if db_solo:
+                solo_p = db_solo
+
+        if collab_profile:
+            collab_p = ChannelProfile.from_dict(collab_profile)
+        else:
+            db_collab = self.db.get_profile(f"{target_streamer}_Collab")
+            if db_collab:
+                collab_p = db_collab
+
+        # If neither profile exists, strictly reject
+        if not solo_p and not collab_p:
+            raise ValueError(
+                f"스트리머 '{target_streamer}'의 등록된 DNA 발화 프로필이 없습니다. 먼저 /프로필등록 명령어로 3+3 프로필을 생성해 주세요."
+            )
+
+        # Fallback between solo/collab if one is provided
+        if not solo_p and collab_p:
+            import copy
+
+            solo_p = copy.deepcopy(collab_p)
+        elif not collab_p and solo_p:
+            import copy
+
+            collab_p = copy.deepcopy(solo_p)
+
+        solo_p.profile_type = "solo"
+        collab_p.profile_type = "collab"
+
+        return solo_p, collab_p
+
+    def run_cloud_pipeline(
+        self,
+        vod_url_or_no: str,
+        streamer_name: str = "",
+        solo_profile: dict[str, Any] | None = None,
+        collab_profile: dict[str, Any] | None = None,
+        selected_mode: str = "solo",
+    ) -> dict[str, Any]:
+        """Core execution logic shared between Cloud Modal and Local Fallback."""
+        from channel_dna.core.utils import sanitize_filename
+        import tempfile
+        from pathlib import Path
+
+        try:
+            # [1/5] Metadata resolution
+            meta = self._fetch_vod_metadata(vod_url_or_no, streamer_name)
+            target_streamer = meta.streamer_name
+            broadcast_date = meta.broadcast_date
+            broadcast_title = meta.broadcast_title
+            v_no = meta.video_no
+
+            print(
+                f"[1/5] Starting VOD Pipeline for {vod_url_or_no} "
+                f"(Target Streamer: {target_streamer}, Mode: {selected_mode})",
+                flush=True,
+            )
+            print(
+                f"[1/5] Metadata loaded: {broadcast_date} - {broadcast_title}",
+                flush=True,
+            )
+
+            # [2/5] Dynamic DNA Profiles
+            solo_p, collab_p = self._resolve_streamer_profiles(
+                target_streamer, solo_profile, collab_profile
+            )
+
+            # [2/5] Audio Extraction & Fast Chat Caching (Single Download)
+            print(
+                "[2/5] Extracting audio stream once into memory (16kHz)...", flush=True
+            )
+            audio_samples = self.scanner.audio_engine.extract_audio_in_memory(
+                vod_url_or_no
+            )
+            self.scanner.last_audio_samples = audio_samples
+
+            total_dur_sec = (
+                len(audio_samples) / 16000.0 if len(audio_samples) > 0 else 0.0
+            )
+            preloaded_chats = None
+            if v_no and total_dur_sec > 0:
+                try:
+                    print(
+                        f"[2/5] Fetching live chat logs for video {v_no} ({total_dur_sec:.1f}s)...",
+                        flush=True,
+                    )
+                    preloaded_chats = self.scanner.chat_engine.fetch_vod_chat_logs(
+                        v_no, total_dur_sec
+                    )
+                    print(
+                        f"[2/5] Chat logs loaded: {len(preloaded_chats) if preloaded_chats else 0} entries.",
+                        flush=True,
+                    )
+                except Exception as chat_err:
+                    print(f"[Chat Fetch Notice] {chat_err}", flush=True)
+
+            solo_markers = []
+            collab_markers = []
+
+            if selected_mode in ("solo", "both"):
+                print(
+                    "[2/5] Scanning audio tension curves & DTW matching for Solo...",
+                    flush=True,
+                )
+                solo_markers = self.scanner.scan(
+                    vod_url_or_no,
+                    solo_p,
+                    scan_mode="solo",
+                    preloaded_audio=audio_samples,
+                    preloaded_chats=preloaded_chats,
+                )
+                print(
+                    f"[2/5] Solo scan complete: {len(solo_markers)} highlight markers identified.",
+                    flush=True,
+                )
+
+            if selected_mode in ("collab", "both"):
+                print(
+                    "[2/5] Scanning audio tension curves & DTW matching for Collab...",
+                    flush=True,
+                )
+                collab_markers = self.scanner.scan(
+                    vod_url_or_no,
+                    collab_p,
+                    scan_mode="collab",
+                    preloaded_audio=audio_samples,
+                    preloaded_chats=preloaded_chats,
+                )
+                print(
+                    f"[2/5] Collab scan complete: {len(collab_markers)} highlight markers identified.",
+                    flush=True,
+                )
+
+            # [3/5] Generate Subtitles for target markers
+            target_markers = (
+                solo_markers
+                if selected_mode == "solo"
+                else (collab_markers if selected_mode == "collab" else solo_markers)
+            )
+            target_p = (
+                solo_p
+                if selected_mode == "solo"
+                else (collab_p if selected_mode == "collab" else solo_p)
+            )
+
+            subtitles = []
+            if target_markers:
+                try:
+                    print(
+                        f"[3/5] Transcribing speech with Whisper AI on GPU & Kiwi alignment ({len(target_markers)} cuts)...",
+                        flush=True,
+                    )
+                    subtitles = self._generate_subtitles(
+                        vod_url_or_no,
+                        broadcast_date,
+                        broadcast_title,
+                        target_markers,
+                        target_p,
+                        None,
+                    )
+                    print(
+                        f"[3/5] Subtitle transcription complete: {len(subtitles)} dialogue segments.",
+                        flush=True,
+                    )
+                except Exception as e:
+                    print(f"[Subtitle STT Error] {e}", flush=True)
+
+            # [4/5] Export XML & FCPXML to memory
+            print(
+                "[4/5] Packaging Final Cut Pro XML, FCPXML & SRT subtitle files...",
+                flush=True,
+            )
+            clean_title = sanitize_filename(broadcast_title, max_length=40)
+            clean_stem = f"{broadcast_date}_{clean_title}"
+            tmp_dir = Path(tempfile.gettempdir())
+
+            # Remap subtitles to rough cut sequence timeline with Zero Bleed
+            solo_subs = None
+            collab_subs = None
+            target_subs = None
+
+            if subtitles:
+                if solo_markers:
+                    solo_subs = self.subtitle_engine.remap_subtitles_to_sequence(
+                        solo_markers, subtitles
+                    )
+                if collab_markers:
+                    collab_subs = self.subtitle_engine.remap_subtitles_to_sequence(
+                        collab_markers, subtitles
+                    )
+                target_subs = collab_subs if selected_mode == "collab" else solo_subs
+
+            solo_xml_content = ""
+            solo_fcpxml_content = ""
+            collab_xml_content = ""
+            collab_fcpxml_content = ""
+
+            if solo_markers:
+                solo_xml_path = tmp_dir / f"{clean_stem}_Solo_60fps.xml"
+                self.exporter.export(
+                    markers=solo_markers,
+                    vod_file_path=vod_url_or_no,
+                    output_path=str(solo_xml_path),
+                    fps=60.0,
+                    export_format="xml",
+                    video_file_name=f"{clean_stem}.mp4",
+                )
+                solo_xml_content = (
+                    solo_xml_path.read_text(encoding="utf-8")
+                    if solo_xml_path.exists()
+                    else ""
+                )
+
+                solo_fcpxml_path = tmp_dir / f"{clean_stem}_Solo_60fps.fcpxml"
+                self.exporter.export(
+                    markers=solo_markers,
+                    vod_file_path=vod_url_or_no,
+                    output_path=str(solo_fcpxml_path),
+                    fps=60.0,
+                    export_format="fcpxml",
+                    video_file_name=f"{clean_stem}.mp4",
+                )
+                solo_fcpxml_content = (
+                    solo_fcpxml_path.read_text(encoding="utf-8")
+                    if solo_fcpxml_path.exists()
+                    else ""
+                )
+
+            if collab_markers:
+                collab_xml_path = tmp_dir / f"{clean_stem}_Collab_60fps.xml"
+                self.exporter.export(
+                    markers=collab_markers,
+                    vod_file_path=vod_url_or_no,
+                    output_path=str(collab_xml_path),
+                    fps=60.0,
+                    export_format="xml",
+                    video_file_name=f"{clean_stem}.mp4",
+                )
+                collab_xml_content = (
+                    collab_xml_path.read_text(encoding="utf-8")
+                    if collab_xml_path.exists()
+                    else ""
+                )
+
+                collab_fcpxml_path = tmp_dir / f"{clean_stem}_Collab_60fps.fcpxml"
+                self.exporter.export(
+                    markers=collab_markers,
+                    vod_file_path=vod_url_or_no,
+                    output_path=str(collab_fcpxml_path),
+                    fps=60.0,
+                    export_format="fcpxml",
+                    video_file_name=f"{clean_stem}.mp4",
+                )
+                collab_fcpxml_content = (
+                    collab_fcpxml_path.read_text(encoding="utf-8")
+                    if collab_fcpxml_path.exists()
+                    else ""
+                )
+
+            # [4/5] Export Speaker-Separated SRTs to memory
+            speaker_srts = {}
+            srt_content = ""
+            if target_subs:
+                base_srt = tmp_dir / f"{clean_stem}_자막.srt"
+                exported_srt_paths = self.subtitle_engine.export_srt_by_speakers(
+                    target_subs, str(base_srt)
+                )
+                for spath in exported_srt_paths:
+                    if spath.exists():
+                        txt = spath.read_text(encoding="utf-8")
+                        speaker_srts[spath.name] = txt
+                        if not srt_content:
+                            srt_content = txt
+
+            print(
+                "[5/5] Package successfully generated! Returning package to Discord bot / API caller.",
+                flush=True,
+            )
+
+            return {
+                "success": True,
+                "selected_mode": selected_mode,
+                "streamer_name": target_streamer,
+                "broadcast_title": broadcast_title,
+                "broadcast_date": broadcast_date,
+                "recommended_filename": f"{clean_stem}.mp4",
+                "solo_xml": solo_xml_content,
+                "solo_xml_content": solo_xml_content,
+                "solo_fcpxml": solo_fcpxml_content,
+                "collab_xml": collab_xml_content,
+                "collab_xml_content": collab_xml_content,
+                "collab_fcpxml": collab_fcpxml_content,
+                "subtitles_srt": srt_content,
+                "srt_content": srt_content,
+                "speaker_srts": speaker_srts,
+                "solo_marker_count": len(solo_markers),
+                "collab_marker_count": len(collab_markers),
+            }
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}

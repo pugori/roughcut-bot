@@ -14,15 +14,17 @@ a = Analysis(
         'asyncio', 'aiohttp', 'aiohttp.web', 'sqlite3', 'dataclasses',
         'json', 'logging', 'threading', 'webbrowser', 'subprocess', 'socket',
         'tempfile', 'zipfile', 'urllib.request', 'base64', 'hashlib', 'ctypes',
-        'cryptography', 'cryptography.fernet', 'shutil', 'pathlib'
+        'cryptography', 'cryptography.fernet', 'shutil', 'pathlib',
+        'scipy', 'scipy.ndimage', 'scipy.signal', 'scipy.spatial',
+        'faster_whisper', 'ctranslate2', 'kiwipiepy', 'librosa',
+        'cv2', 'numpy', 'soundfile', 'sklearn', 'fastdtw', 'dtaidistance'
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'torch', 'torchaudio', 'torchvision', 'cv2', 'pandas', 'scipy', 'numba', 
-        'llvmlite', 'ctranslate2', 'faster_whisper', 'kiwipiepy', 'demucs',
-        'matplotlib', 'IPython', 'pytest', 'PIL'
+        'torch', 'torchaudio', 'torchvision', 'pandas', 
+        'demucs', 'matplotlib', 'IPython', 'pytest', 'PIL'
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -32,9 +34,22 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+splash = Splash(
+    'splash_screen.png',
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=(20, 360),
+    text_size=11,
+    text_color='#ffffff',
+    minify_script=True,
+    always_on_top=True
+)
+
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
+    splash.binaries,
     a.binaries,
     a.zipfiles,
     a.datas,
@@ -55,3 +70,4 @@ exe = EXE(
     icon='official_logo.ico',
     version='version_info.txt',
 )
+

@@ -224,11 +224,17 @@ class GraphEngine:
         """
         if len(tensions) < 10:
             return []
+            
+        global_mean = float(np.mean(tensions))
+        global_std = float(np.std(tensions))
+        super_peak_threshold = max(rms_threshold * 2.5, global_mean + 2.0 * global_std)
 
         template_arr = np.array(
-            motif_template
-            if motif_template is not None
-            else self.get_default_motif_template(),
+            (
+                motif_template
+                if motif_template is not None
+                else self.get_default_motif_template()
+            ),
             dtype=np.float32,
         )
         if len(template_arr) != self.target_len:
@@ -297,7 +303,7 @@ class GraphEngine:
                 is_narrative = (peak >= (rms_threshold * 0.65)) and (
                     final_sim >= max(0.50, min_shape_similarity * 0.85)
                 )
-                is_super_peak = peak >= (rms_threshold * 1.40)
+                is_super_peak = peak >= super_peak_threshold
 
                 if is_standard or is_narrative or is_super_peak:
                     st = max(0.0, float(t_center - half_win))
@@ -313,18 +319,18 @@ class GraphEngine:
         cur_st, cur_et, cur_pk, cur_sim = raw_candidates[0]
 
         for st, et, pk, sim in raw_candidates[1:]:
-            if st <= cur_et + 5.0:
+            if st <= cur_et + 5.0 and (max(cur_et, et) - cur_st) <= 60.0:
                 cur_et = max(cur_et, et)
                 cur_pk = max(cur_pk, pk)
                 cur_sim = max(cur_sim, sim)
             else:
                 dur = cur_et - cur_st
-                if 5.0 <= dur <= 120.0:
+                if 5.0 <= dur <= 7200.0:
                     merged_episodes.append((cur_st, cur_et, cur_pk, cur_sim))
                 cur_st, cur_et, cur_pk, cur_sim = st, et, pk, sim
 
         dur = cur_et - cur_st
-        if 5.0 <= dur <= 120.0:
+        if 5.0 <= dur <= 7200.0:
             merged_episodes.append((cur_st, cur_et, cur_pk, cur_sim))
 
         return merged_episodes

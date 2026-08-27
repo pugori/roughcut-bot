@@ -294,3 +294,4 @@ class ChzzkChatEngine:
             norm_curve = smooth_curve
 
         return norm_curve[: int(duration_sec)]
+

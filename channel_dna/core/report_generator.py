@@ -120,3 +120,4 @@ class ReportGenerator:
 
         out_file.write_text("\n".join(lines), encoding="utf-8")
         return out_file
+

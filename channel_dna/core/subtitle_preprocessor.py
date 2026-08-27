@@ -99,3 +99,4 @@ class SubtitleAudioPreprocessor:
         raw_slice = full_audio[start_samp:end_samp]
         processed_slice = self.preprocess_slice(raw_slice)
         return processed_slice, slice_start_sec, slice_end_sec
+

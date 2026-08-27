@@ -24,7 +24,9 @@ from channel_dna.core.subtitle_preprocessor import SubtitleAudioPreprocessor
 HAS_FASTER_WHISPER = True
 
 
-def convert_to_stacked_davinci_subs(subtitles: list[SubtitleItem]) -> list[SubtitleItem]:
+def convert_to_stacked_davinci_subs(
+    subtitles: list[SubtitleItem],
+) -> list[SubtitleItem]:
     """Converts overlapping multi-speaker subtitles into non-overlapping stacked 2-line subtitles
     and applies Smart Gap Bridging (<= 0.45s) and Anti-Collision clamping for 100% universal NLE compatibility.
     """
@@ -106,6 +108,7 @@ class SubtitleEngine:
         if device == "cpu":
             try:
                 import torch
+
                 if torch.cuda.is_available():
                     device = "cuda"
                     if compute_type == "int8":
@@ -128,16 +131,30 @@ class SubtitleEngine:
         if self._model is None:
             if progress_cb:
                 progress_cb(
-                    "SubtitleInit", 0.88, "Whisper Large-v3-Turbo 고성능 한국어 전사 엔진 로드 중..."
+                    "SubtitleInit",
+                    0.88,
+                    "Whisper Large-v3-Turbo 고성능 한국어 전사 엔진 로드 중...",
                 )
             import os
             import sys
             import glob
+
             os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
             if sys.platform != "win32":
                 try:
                     import ctypes
-                    for p in glob.glob(os.path.join(sys.prefix, "lib", "python*", "site-packages", "nvidia", "*", "lib")):
+
+                    for p in glob.glob(
+                        os.path.join(
+                            sys.prefix,
+                            "lib",
+                            "python*",
+                            "site-packages",
+                            "nvidia",
+                            "*",
+                            "lib",
+                        )
+                    ):
                         for so in glob.glob(os.path.join(p, "*.so*")):
                             try:
                                 ctypes.CDLL(so)
@@ -146,14 +163,27 @@ class SubtitleEngine:
                 except Exception:
                     pass
             from faster_whisper import WhisperModel
+            import sys
+            import os
+            import pathlib
+
+            # Determine true portable root directory
+            if getattr(sys, "frozen", False):
+                base_path = pathlib.Path(sys.executable).parent
+            else:
+                base_path = pathlib.Path.cwd()
+
+            model_dir = str(base_path / "ChannelDNA_Models")
+            os.makedirs(model_dir, exist_ok=True)
+
             safe_threads = 4
             num_w = 4 if self.device == "cuda" else 1
 
             candidate_models = [
+                "small",  # Preferred lightweight model for Local Fork
                 "deepdml/faster-whisper-large-v3-turbo-ct2",
                 self.model_size,
                 "large-v3-turbo",
-                "small",
             ]
             for m_name in candidate_models:
                 try:
@@ -163,10 +193,15 @@ class SubtitleEngine:
                         compute_type=self.compute_type,
                         cpu_threads=safe_threads,
                         num_workers=num_w,
+                        download_root=model_dir,
                     )
                     break
                 except Exception as e:
-                    _logger.warning("Model load for %s failed (%s), trying next fallback...", m_name, e)
+                    _logger.warning(
+                        "Model load for %s failed (%s), trying next fallback...",
+                        m_name,
+                        e,
+                    )
 
         return self._model
 
@@ -275,7 +310,20 @@ class SubtitleEngine:
 
                 segments_gen, info = model.transcribe(vocal_audio, **transcribe_kwargs)
 
-                segments = list(segments_gen)
+                segments = []
+                for seg in segments_gen:
+                    segments.append(seg)
+                    if progress_cb:
+                        txt = seg.text.strip()
+                        if txt:
+                            # Shorten text to avoid UI overflow
+                            if len(txt) > 30:
+                                txt = txt[:27] + "..."
+                            progress_cb(
+                                "SubtitleGen",
+                                0.89 + 0.05 * (idx / max(1, len(markers))),
+                                f"전사 중 (컷 {idx}/{len(markers)}) [{seg.start:.1f}s]: {txt}",
+                            )
 
                 collected_words: list[dict[str, Any]] = []
                 for seg in segments:
@@ -332,19 +380,51 @@ class SubtitleEngine:
             return idx, m, []
 
         import concurrent.futures
-        num_workers = 6 if self.device == "cuda" else 2
+        import gc
+
+        num_workers = 1 if self.device == "cuda" else 2
         results = []
         completed_count = 0
 
+        if progress_cb:
+            progress_cb(
+                "SubtitleGen",
+                0.89,
+                f"한국어 전사 엔진 분석 시작... (총 {total_markers}컷)",
+            )
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as pool:
-            futures = [pool.submit(_process_marker_task, item) for item in enumerate(markers, 1)]
+            futures = [
+                pool.submit(_process_marker_task, item)
+                for item in enumerate(markers, 1)
+            ]
             for fut in concurrent.futures.as_completed(futures):
                 res = fut.result()
                 results.append(res)
                 completed_count += 1
-                if completed_count % 30 == 0 or completed_count == total_markers:
-                    pct = (completed_count / total_markers) * 100.0
-                    print(f"[3/5] GPU STT Progress: {completed_count}/{total_markers} cuts transcribed ({pct:.0f}%)...", flush=True)
+
+                pct = (completed_count / total_markers) * 100.0
+                if completed_count % 5 == 0 or completed_count == total_markers:
+                    print(
+                        f"[3/5] GPU STT Progress: {completed_count}/{total_markers} cuts transcribed ({pct:.0f}%)...",
+                        flush=True,
+                    )
+                if progress_cb:
+                    # Map transcription progress between 89% and 94%
+                    overall_pct = 0.89 + (completed_count / total_markers) * 0.05
+                    progress_cb(
+                        "SubtitleGen",
+                        overall_pct,
+                        f"한국어 전사 엔진 분석 중... ({completed_count}/{total_markers} 컷 완료)",
+                    )
+                    if self.device == "cuda":
+                        try:
+                            import torch
+
+                            torch.cuda.empty_cache()
+                        except Exception:
+                            pass
+                    gc.collect()
 
         # Guarantee exact marker ordering and 100% preservation (zero omission)
         results.sort(key=lambda x: x[0])
@@ -442,11 +522,18 @@ class SubtitleEngine:
                     # Only apply speaker tags if clusters are genuinely distinct (silhouette >= 0.18)
                     if score >= 0.18:
                         first_label = int(labels[0])
-                        speaker_map = {first_label: "[화자 1]", 1 - first_label: "[화자 2]"}
+                        speaker_map = {
+                            first_label: "[화자 1]",
+                            1 - first_label: "[화자 2]",
+                        }
                         for idx_in_valid, orig_idx in enumerate(valid_indices):
                             tag = speaker_map[int(labels[idx_in_valid])]
                             sub = all_subtitles[orig_idx]
-                            if not (sub.text.startswith("[화자") or sub.text.startswith("[도네") or sub.text.startswith("🗣️")):
+                            if not (
+                                sub.text.startswith("[화자")
+                                or sub.text.startswith("[도네")
+                                or sub.text.startswith("🗣️")
+                            ):
                                 sub.text = f"{tag} {sub.text}"
             except Exception as e:
                 _logger.debug("Diarization failed: %s", e)
@@ -467,7 +554,7 @@ class SubtitleEngine:
                     and gap < 1.2
                     and (len(cur.text) + len(nxt.text) - len(cur_spk)) < 36
                 ):
-                    clean_nxt_text = nxt.text[len(nxt_spk):].strip()
+                    clean_nxt_text = nxt.text[len(nxt_spk) :].strip()
                     cur.text = f"{cur.text} {clean_nxt_text}".strip()
                     cur.end_time = max(cur.end_time, nxt.end_time)
                 else:
@@ -560,6 +647,99 @@ class SubtitleEngine:
         self._write_srt_file(davinci_stacked, out_file)
 
         return out_file
+
+    def remap_subtitles_to_sequence(self, markers: list, subtitles: list) -> list:
+        """Remaps subtitles from absolute original time to Cut Sequence Timeline with Cut-Boundary Zero Bleed (-0.05s)."""
+        import copy
+
+        remapped_subs = []
+        seq_time = 0.0
+
+        for m in markers:
+            m_start = m.start_time
+            m_end = m.end_time
+            m_dur = m.end_time - m.start_time
+            # Safety headroom: clamp subtitle end 2~3 frames (0.05s) before cut boundary
+            max_clip_end = max(0.20, m_dur - 0.05)
+
+            for s in subtitles:
+                if s.start_time >= (m_start - 0.3) and s.start_time < (m_end - 0.05):
+                    s_offset = max(0.0, s.start_time - m_start)
+                    e_offset = min(max_clip_end, s.end_time - m_start)
+
+                    if e_offset > s_offset:
+                        new_s = copy.deepcopy(s)
+                        new_s.start_time = round(seq_time + s_offset, 3)
+                        new_s.end_time = round(seq_time + e_offset, 3)
+                        remapped_subs.append(new_s)
+
+            seq_time += m_dur
+
+        return remapped_subs
+
+    def export_srt_by_speakers(
+        self, subtitles: list[SubtitleItem], base_output_path: str
+    ) -> list[Path]:
+        """Extract speakers and export clean NLE-ready SRT files.
+        - Single Speaker (Solo): exports clean `[stem]_자막.srt`
+        - Multi Speaker (Collab/TTS): exports ONLY individual speaker tracks `[stem]_자막_[화자].srt` (NO integrated / merged subtitle)
+        """
+        from collections import defaultdict
+        from pathlib import Path
+
+        speaker_groups = defaultdict(list)
+
+        for s in subtitles:
+            speaker = "메인"
+            text = s.text.strip()
+            if text.startswith("[") and "]" in text:
+                end_idx = text.find("]")
+                tag = text[1:end_idx].strip()
+                speaker = tag
+                s_copy = SubtitleItem(
+                    index=s.index,
+                    start_time=s.start_time,
+                    end_time=s.end_time,
+                    text=text[end_idx + 1 :].strip(),
+                )
+            else:
+                s_copy = SubtitleItem(
+                    index=s.index,
+                    start_time=s.start_time,
+                    end_time=s.end_time,
+                    text=text,
+                )
+            speaker_groups[speaker].append(s_copy)
+
+        base_path = Path(base_output_path)
+        base_dir = base_path.parent
+        stem = base_path.stem
+        if stem.endswith("_자막"):
+            stem = stem[:-3]
+
+        exported_paths: list[Path] = []
+
+        # 1. If only single speaker, export as clean single [stem]_자막.srt
+        if len(speaker_groups) <= 1 or (
+            len(speaker_groups) == 1
+            and ("메인" in speaker_groups or "미분류" in speaker_groups)
+        ):
+            single_list = (
+                list(speaker_groups.values())[0] if speaker_groups else subtitles
+            )
+            out_path = base_dir / f"{stem}_자막.srt"
+            self.export_srt(single_list, str(out_path))
+            exported_paths.append(out_path)
+            return exported_paths
+
+        # 2. Multi-speaker export: ONLY individual speaker tracks (No redundant merged file)
+        for spk, sub_list in speaker_groups.items():
+            safe_spk = spk.replace(" ", "_").replace("/", "_").replace(":", "_")
+            spk_srt_path = base_dir / f"{stem}_자막_{safe_spk}.srt"
+            self.export_srt(sub_list, str(spk_srt_path))
+            exported_paths.append(spk_srt_path)
+
+        return exported_paths
 
     def _write_srt_file(self, subs_list: list[SubtitleItem], target_path: Path):
         try:

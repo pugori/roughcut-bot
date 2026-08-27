@@ -76,3 +76,4 @@ class OpenTimelineIOExporter:
 
         otio.adapters.write_to_file(timeline, str(out_file))
         return out_file
+

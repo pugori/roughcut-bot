@@ -59,3 +59,4 @@ logger.addHandler(gui_handler)
 
 def get_logger(name: str):
     return logger.getChild(name)
+

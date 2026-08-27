@@ -351,11 +351,16 @@ class ChannelProfiler:
             profile_type="solo",
             chzzk_url=chzzk_channel_url
         )
-        self.db.save_profile(solo_obj)
-        
-        # We also want to somehow store both under one name for the GUI, but the GUI 
-        # fetches all rows. For simplicity, just return the pid.
-        
+        if discord_user_id:
+            self.db.save_user_profile(
+                discord_user_id=discord_user_id,
+                profile_name=profile_name,
+                solo_profile=solo_profile,
+                collab_profile=collab_profile,
+                chzzk_channel_url=chzzk_channel_url,
+                profile_id=pid,
+            )
+
         return {
             "profile_id": pid,
             "profile_name": profile_name,
@@ -363,5 +368,6 @@ class ChannelProfiler:
             "solo_profile": solo_profile,
             "collab_profile": collab_profile,
         }
+
 
 

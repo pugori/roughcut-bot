@@ -26,3 +26,4 @@ class VrewTableExporter:
 
         out_file.write_text("\n".join(lines), encoding="utf-8-sig")
         return out_file
+

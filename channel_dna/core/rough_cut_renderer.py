@@ -274,3 +274,4 @@ class RoughCutRenderer:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception as e:
                 _logger.debug("Silenced exception: %s", e)
+

@@ -63,8 +63,9 @@ import os
 py_files = []
 for root, _, files in os.walk("."):
     for file in files:
-        if file.endswith(".py") and file != "setup.py" and file != "run_local_gui.py" and file != "modal_app.py" and not file.endswith("__init__.py"):
+        if file.endswith(".py") and file not in ["setup.py", "run_local_gui.py", "modal_app.py", "graph_engine.py"] and not file.endswith("__init__.py"):
             py_files.append(os.path.join(root, file))
+
 
 if __name__ == '__main__':
     setup(
@@ -94,8 +95,9 @@ if __name__ == '__main__':
                 path.unlink()
             elif file.endswith(".c"):
                 path.unlink()
-            elif file.endswith(".py") and file not in ["__init__.py", "run_local_gui.py", "modal_app.py"]:
+            elif file.endswith(".py") and file not in ["__init__.py", "run_local_gui.py", "modal_app.py", "graph_engine.py"]:
                 path.unlink()
+
     
     # Remove build folder created by setuptools
     if (build_dir / "build").exists():

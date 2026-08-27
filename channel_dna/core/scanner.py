@@ -198,13 +198,26 @@ class VODScanner:
 
         if progress_cb:
             progress_cb(
-                "TensionCalc", 0.38, "보컬 포먼트 분리 및 발화 밀도·웃음 궤적 연산 중..."
+                "TensionCalc",
+                0.38,
+                "보컬 포먼트 분리 및 발화 밀도·웃음 궤적 연산 중...",
             )
 
-        times, tension_values = self.audio_engine.compute_sliding_tension(audio_samples)
-        _, speech_density, laughter_curve = (
-            self.audio_engine.compute_speech_density_and_laughter_curves(audio_samples)
-        )
+        if hasattr(self.audio_engine, "compute_all_audio_features_chunked"):
+            times, tension_values, speech_density, laughter_curve = (
+                self.audio_engine.compute_all_audio_features_chunked(
+                    audio_samples, progress_cb=progress_cb, cancel_event=cancel_event
+                )
+            )
+        else:
+            times, tension_values = self.audio_engine.compute_sliding_tension(
+                audio_samples
+            )
+            _, speech_density, laughter_curve = (
+                self.audio_engine.compute_speech_density_and_laughter_curves(
+                    audio_samples
+                )
+            )
 
         # Align lengths if needed
         min_len = min(
@@ -237,9 +250,7 @@ class VODScanner:
                     chats, total_dur_sec, bin_size_sec=1.0
                 )
                 if len(chat_vel) > 0:
-                    chat_curve = np.interp(
-                        times, np.arange(len(chat_vel)), chat_vel
-                    )
+                    chat_curve = np.interp(times, np.arange(len(chat_vel)), chat_vel)
             except Exception as e:
                 _logger.debug("Silenced exception: %s", e)
 
@@ -264,7 +275,9 @@ class VODScanner:
                 pass
 
         if progress_cb:
-            prof_label = active_profile.channel_name if active_profile else "양망두_Solo"
+            prof_label = (
+                active_profile.channel_name if active_profile else "양망두_Solo"
+            )
             progress_cb(
                 "TwoTrackClassify",
                 0.60,
@@ -289,12 +302,12 @@ class VODScanner:
             times=times,
             fps=calc_fps,
             mode=active_mode,
-            speech_weight=active_profile.speech_density_weight
-            if active_profile
-            else 0.65,
-            laughter_sens=active_profile.laughter_sensitivity
-            if active_profile
-            else 1.20,
+            speech_weight=(
+                active_profile.speech_density_weight if active_profile else 0.65
+            ),
+            laughter_sens=(
+                active_profile.laughter_sensitivity if active_profile else 1.20
+            ),
         )
 
         if progress_cb:
@@ -308,7 +321,7 @@ class VODScanner:
         target_rms = (
             active_profile.highlight_rms_threshold
             if (active_profile and active_profile.highlight_rms_threshold)
-            else (1.05 if active_mode == "collab" else 0.85)
+            else (0.25 if active_mode == "collab" else 0.15)
         )
         asl_target = (
             active_profile.avg_shot_length
@@ -322,10 +335,10 @@ class VODScanner:
             motif_template=active_profile.motif_template if active_profile else None,
             asl_sec=asl_target,
             rms_threshold=target_rms,
-            min_shape_similarity=0.35,
+            min_shape_similarity=0.60,
         )
 
-        # 5-B. Conversational Banter & Laughter Burst Detection
+        # 5-B. Conversational Banter & Laughter Burst Detection (Statistical Top-Tier Selection)
         dt = float(times[1] - times[0]) if len(times) > 1 else 0.5
         win_size = int(18.0 / dt)
         if len(speech_density) > win_size:
@@ -339,7 +352,8 @@ class VODScanner:
             ).astype(np.float32)
 
             banter_score = smooth_density * 1.5 + smooth_laughter * 1.0
-            banter_peaks = np.where(banter_score > 1.25)[0]
+            banter_threshold = max(1.65, float(np.percentile(banter_score, 88)))
+            banter_peaks = np.where(banter_score >= banter_threshold)[0]
 
             if len(banter_peaks) > 0:
                 cur_grp = [banter_peaks[0]]
@@ -349,7 +363,7 @@ class VODScanner:
                     else:
                         b_st = float(times[cur_grp[0]])
                         b_et = float(times[cur_grp[-1]])
-                        if 10.0 <= (b_et - b_st) <= 90.0:
+                        if 8.0 <= (b_et - b_st) <= 75.0:
                             if not any(
                                 (st - 5.0 <= b_st <= et + 5.0)
                                 for st, et, _, _ in matched_episodes
@@ -362,7 +376,7 @@ class VODScanner:
                 if len(cur_grp) > 0:
                     b_st = float(times[cur_grp[0]])
                     b_et = float(times[cur_grp[-1]])
-                    if 10.0 <= (b_et - b_st) <= 90.0:
+                    if 8.0 <= (b_et - b_st) <= 75.0:
                         if not any(
                             (st - 5.0 <= b_st <= et + 5.0)
                             for st, et, _, _ in matched_episodes
@@ -382,21 +396,26 @@ class VODScanner:
                 "NarrativeChapters", 0.88, f"서사 챕터 자동 감지: {chap_summary}"
             )
 
-        # 7. Apply VAD Silence Snapping with Asymmetric Padding (-0.25s Lead-in, +0.40s Lead-out)
-        search_window = (
+        # 7. Apply VAD Silence Snapping with Editor-Calibrated Asymmetric Padding
+        silence_tol = (
             active_profile.silence_tolerance
             if (active_profile and active_profile.silence_tolerance)
-            else (3.5 if active_mode == "collab" else 2.0)
+            else (1.2 if active_mode == "collab" else 0.8)
         )
+        search_window = max(0.8, min(3.0, silence_tol * 1.5))
+        lead_in = max(0.08, min(0.20, asl_target * 0.04))
+
         buffered_markers: list[ScanMarker] = []
         for st, et, peak_score, sim_score in matched_episodes:
-            raw_buf_start = max(0.0, st - 2.5)
+            raw_buf_start = max(0.0, st - 2.0)
             raw_buf_end = (
-                min(total_dur_sec, et + 3.0) if total_dur_sec > 0 else (et + 3.0)
+                min(total_dur_sec, et + 2.5) if total_dur_sec > 0 else (et + 2.5)
             )
 
-            # Reaction hold: Give 0.60s extra room after high-tension peaks (laughter/shouting) for visual reaction
-            extra_lead_out = 0.60 if peak_score >= 3.2 else 0.28
+            # Reaction hold: Adaptive lead-out scaled with silence tolerance and peak
+            extra_lead_out = (0.45 if peak_score >= 3.2 else 0.22) + (
+                silence_tol * 0.08
+            )
 
             snapped_st, snapped_et = find_speech_silence_boundaries(
                 audio_samples,
@@ -404,7 +423,7 @@ class VODScanner:
                 raw_buf_end,
                 sr=self.audio_engine.sr,
                 search_window_sec=search_window,
-                lead_in_sec=0.15,
+                lead_in_sec=lead_in,
                 lead_out_sec=extra_lead_out,
             )
 
@@ -427,14 +446,15 @@ class VODScanner:
                     )
                 )
 
-        # 8. Dynamic Merging with 2.2s micro-gap (tighter cuts for fast-paced video editing)
-        dynamic_max_duration = 75.0
+        # 8. Dynamic ASL-Scaled Merging (Tighter pacing for snappy YouTube editing)
+        dynamic_max_duration = 65.0
         if active_profile and hasattr(active_profile, "tension_interval"):
-            dynamic_max_duration = float(active_profile.tension_interval) * 1.8
-            dynamic_max_duration = max(35.0, min(120.0, dynamic_max_duration))
+            dynamic_max_duration = float(active_profile.tension_interval) * 1.5
+            dynamic_max_duration = max(30.0, min(90.0, dynamic_max_duration))
 
+        dynamic_max_gap = max(1.0, min(2.5, silence_tol * 1.4))
         merged_markers = self._merge_overlapping_markers(
-            buffered_markers, max_gap=2.2, max_duration=dynamic_max_duration
+            buffered_markers, max_gap=dynamic_max_gap, max_duration=dynamic_max_duration
         )
 
         # 9. Essential Anchor Injections (Opening greeting within 0~5m & Outro within last 5m)
@@ -502,18 +522,46 @@ class VODScanner:
                 max_duration=dynamic_max_duration,
             )
 
-        # 10. Narrative Balance with Pure Dynamic Extraction (No Artificial Caps)
+        # 10. Narrative Balance & Target Rough Cut Retention Density (25% ~ 35% Editor Selects)
         quota = (active_profile.narrative_quota if active_profile else None) or {
             "intro": 0.40,
             "body": 0.40,
             "outro": 0.20,
         }
 
-        final_selected_markers: list[ScanMarker] = []
-        if len(chapters) == 3:
-            for idx, (c_st, c_et, _) in enumerate(chapters):
-                c_markers = [m for m in merged_markers if c_st <= m.start_time < c_et]
-                final_selected_markers.extend(c_markers)
+        total_cut_sec = sum(m.duration for m in merged_markers)
+        target_retention_sec = (
+            max(1200.0, total_dur_sec * 0.32) if total_dur_sec > 0 else 3600.0
+        )
+
+        if total_dur_sec > 1800.0 and total_cut_sec > target_retention_sec:
+            # Editor Selects Prioritization: Always preserve Anchors + Super High Peaks (>= 3.0)
+            priority_markers: list[ScanMarker] = []
+            standard_candidates: list[ScanMarker] = []
+
+            for m in merged_markers:
+                if "Anchor" in m.label or m.peak_tension >= 3.0:
+                    priority_markers.append(m)
+                else:
+                    standard_candidates.append(m)
+
+            current_budget = sum(m.duration for m in priority_markers)
+            remaining_budget = max(0.0, target_retention_sec - current_budget)
+
+            # Sort standard candidates by peak tension descending
+            standard_candidates.sort(key=lambda m: m.peak_tension, reverse=True)
+            selected_standard: list[ScanMarker] = []
+            accumulated = 0.0
+
+            for m in standard_candidates:
+                if accumulated + m.duration <= remaining_budget:
+                    selected_standard.append(m)
+                    accumulated += m.duration
+                elif accumulated < remaining_budget * 0.8:
+                    selected_standard.append(m)
+                    break
+
+            final_selected_markers = priority_markers + selected_standard
         else:
             final_selected_markers = merged_markers
 
@@ -565,5 +613,3 @@ class VODScanner:
                 merged.append(current)
 
         return merged
-
-

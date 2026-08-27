@@ -113,6 +113,62 @@ class DBManager:
                 scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS streamer_bindings (
+                channel_id TEXT PRIMARY KEY,
+                streamer_name TEXT NOT NULL,
+                target_dna_profile TEXT DEFAULT '',
+                passcode TEXT,
+                master_discord_id BIGINT,
+                is_bound INTEGER DEFAULT 0,
+                last_processed_video_no TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                bound_at TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                profile_id TEXT PRIMARY KEY,
+                discord_user_id BIGINT NOT NULL,
+                profile_name TEXT NOT NULL,
+                chzzk_channel_url TEXT DEFAULT '',
+                solo_profile_json TEXT NOT NULL,
+                collab_profile_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_credits (
+                discord_user_id BIGINT PRIMARY KEY,
+                credits INTEGER NOT NULL DEFAULT 0,
+                total_charged INTEGER NOT NULL DEFAULT 0,
+                total_used INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_user_id BIGINT NOT NULL,
+                amount INTEGER NOT NULL,
+                balance_after INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                order_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_usage_logs (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_user_id BIGINT NOT NULL,
+                usage_date TEXT NOT NULL,
+                is_free_quota INTEGER NOT NULL,
+                video_no TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_name);"
         )
@@ -131,13 +187,38 @@ class DBManager:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_profile_name ON channel_profiles(channel_name);"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_up_user ON user_profiles(discord_user_id);"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_usage_user_date ON daily_usage_logs(discord_user_id, usage_date);"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_streamer_bound ON streamer_bindings(is_bound, master_discord_id);"
+        )
         conn.commit()
+
+    def _get_table_columns(self, conn: Any, table_name: str) -> set[str]:
+        cur = conn.cursor()
+        import os
+        if os.environ.get("SUPABASE_URI"):
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s;", (table_name,))
+            rows = cur.fetchall()
+            cols = set()
+            for r in rows:
+                if isinstance(r, (tuple, list)):
+                    cols.add(r[0])
+                elif hasattr(r, "keys") and "column_name" in r.keys():
+                    cols.add(r["column_name"])
+            return cols
+        else:
+            cur.execute(f"PRAGMA table_info({table_name});")
+            rows = cur.fetchall()
+            return {r[1] for r in rows if r}
 
     def _apply_migrations(self, conn: sqlite3.Connection):
         # 1. Videos migrations
-        cur = conn.cursor()
-        cur.execute("PRAGMA table_info(videos);")
-        v_cols = {r[1] for r in cur.fetchall()}
+        v_cols = self._get_table_columns(conn, "videos")
         if "video_type" not in v_cols:
             conn.execute("ALTER TABLE videos ADD COLUMN video_type TEXT DEFAULT 'auto';")
         if "speech_density" not in v_cols:
@@ -146,12 +227,12 @@ class DBManager:
             conn.execute("ALTER TABLE videos ADD COLUMN laughter_score REAL DEFAULT 1.0;")
 
         # 2. Marker history migrations
-        if "json_data" not in {r[1] for r in cur.execute("PRAGMA table_info(marker_history);").fetchall()}:
+        m_cols = self._get_table_columns(conn, "marker_history")
+        if "json_data" not in m_cols:
             conn.execute("ALTER TABLE marker_history ADD COLUMN json_data TEXT;")
 
         # 3. Channel profiles migrations
-        cur.execute("PRAGMA table_info(channel_profiles);")
-        p_cols = {r[1] for r in cur.fetchall()}
+        p_cols = self._get_table_columns(conn, "channel_profiles")
         required_cols = {
             "profile_id": "TEXT",
             "channel_name": "TEXT",
@@ -190,8 +271,16 @@ class DBManager:
         with self._session() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO marker_history (video_no, channel_name, title, duration_sec, marker_count, file_path, json_data, scanned_at)
+                INSERT INTO marker_history (video_no, channel_name, title, duration_sec, marker_count, file_path, json_data, scanned_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(video_no) DO UPDATE SET
+                    channel_name = excluded.channel_name,
+                    title = excluded.title,
+                    duration_sec = excluded.duration_sec,
+                    marker_count = excluded.marker_count,
+                    file_path = excluded.file_path,
+                    json_data = excluded.json_data,
+                    scanned_at = CURRENT_TIMESTAMP;
             """,
                 (
                     str(video_no),
@@ -239,8 +328,17 @@ class DBManager:
         with self._session() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO videos (video_id, title, duration, avg_shot_length, channel_name, file_path, video_type, speech_density, laughter_score)
+                INSERT INTO videos (video_id, title, duration, avg_shot_length, channel_name, file_path, video_type, speech_density, laughter_score)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    title = excluded.title,
+                    duration = excluded.duration,
+                    avg_shot_length = excluded.avg_shot_length,
+                    channel_name = excluded.channel_name,
+                    file_path = excluded.file_path,
+                    video_type = excluded.video_type,
+                    speech_density = excluded.speech_density,
+                    laughter_score = excluded.laughter_score;
             """,
                 (
                     metadata.video_id,
@@ -420,9 +518,27 @@ class DBManager:
         with self._session() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO channel_profiles (
+                INSERT INTO channel_profiles (
                     profile_id, channel_name, sample_count, avg_shot_length, tension_interval, silence_tolerance, highlight_rms_threshold, hook_duration, custom_vocab, motif_template, youtube_url, chzzk_url, profile_type, host_voice_print, narrative_quota, speech_density_weight, laughter_sensitivity, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(channel_name) DO UPDATE SET
+                    profile_id = excluded.profile_id,
+                    sample_count = excluded.sample_count,
+                    avg_shot_length = excluded.avg_shot_length,
+                    tension_interval = excluded.tension_interval,
+                    silence_tolerance = excluded.silence_tolerance,
+                    highlight_rms_threshold = excluded.highlight_rms_threshold,
+                    hook_duration = excluded.hook_duration,
+                    custom_vocab = excluded.custom_vocab,
+                    motif_template = excluded.motif_template,
+                    youtube_url = excluded.youtube_url,
+                    chzzk_url = excluded.chzzk_url,
+                    profile_type = excluded.profile_type,
+                    host_voice_print = excluded.host_voice_print,
+                    narrative_quota = excluded.narrative_quota,
+                    speech_density_weight = excluded.speech_density_weight,
+                    laughter_sensitivity = excluded.laughter_sensitivity,
+                    updated_at = CURRENT_TIMESTAMP;
             """,
                 (
                     profile.profile_id or str(uuid.uuid4())[:8],
@@ -836,8 +952,8 @@ class DBManager:
                 INSERT INTO user_credits (discord_user_id, credits, total_charged, updated_at)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(discord_user_id) DO UPDATE SET
-                    credits = credits + excluded.credits,
-                    total_charged = total_charged + excluded.credits,
+                    credits = user_credits.credits + excluded.credits,
+                    total_charged = user_credits.total_charged + excluded.credits,
                     updated_at = CURRENT_TIMESTAMP;
                 """,
                 (discord_user_id, amount, max(0, amount)),
@@ -950,8 +1066,11 @@ class Psycopg2MockCursor:
     def __init__(self, cur):
         self._cur = cur
         self.rowcount = -1
+
     def execute(self, sql, parameters=None):
-        sql = sql.replace('?', '%s')
+        if '?' in sql:
+            sql = sql.replace('%', '%%')
+            sql = sql.replace('?', '%s')
         sql = sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
         if sql.strip().upper().startswith('PRAGMA'):
             return self
@@ -960,31 +1079,70 @@ class Psycopg2MockCursor:
             self.rowcount = self._cur.rowcount
             return self
         except psycopg2.errors.DuplicateColumn:
-            # Ignore duplicate columns during migrations
             self._cur.connection.rollback()
             return self
         except Exception as e:
-            print(f'[Postgres Execute Error] {e}')
+            print(f'[Postgres Execute Error] {e}\nSQL: {sql}')
             raise
+
+    def executemany(self, sql, seq_of_parameters):
+        if '?' in sql:
+            sql = sql.replace('%', '%%')
+            sql = sql.replace('?', '%s')
+        try:
+            self._cur.executemany(sql, seq_of_parameters)
+            self.rowcount = self._cur.rowcount
+            return self
+        except Exception as e:
+            print(f'[Postgres Executemany Error] {e}\nSQL: {sql}')
+            raise
+
     def fetchone(self):
-        try: return self._cur.fetchone()
-        except: return None
+        try:
+            return self._cur.fetchone()
+        except Exception:
+            return None
+
     def fetchall(self):
-        try: return self._cur.fetchall()
-        except: return []
+        try:
+            return self._cur.fetchall()
+        except Exception:
+            return []
+
 
 class Psycopg2MockConnection:
     def __init__(self, uri):
         self._conn = psycopg2.connect(uri)
         self._conn.autocommit = False
+
     def cursor(self):
         return Psycopg2MockCursor(self._conn.cursor(cursor_factory=DictCursor))
+
     def execute(self, sql, parameters=None):
         cur = self.cursor()
         return cur.execute(sql, parameters)
-    def commit(self): self._conn.commit()
-    def close(self): self._conn.close()
-    def __enter__(self): return self
+
+    def executemany(self, sql, seq_of_parameters):
+        cur = self.cursor()
+        return cur.executemany(sql, seq_of_parameters)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None: self.commit()
-        else: self._conn.rollback()
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()

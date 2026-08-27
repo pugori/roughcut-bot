@@ -280,3 +280,4 @@ def get_chzzk_direct_lowres_video_url(video_input: str) -> str | None:
         _logger.debug("Silenced exception: %s", e)
 
     return None
+

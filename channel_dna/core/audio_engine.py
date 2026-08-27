@@ -353,9 +353,21 @@ class AudioEngine:
                     sem = asyncio.Semaphore(24)
 
                     async def fetch_item(u):
-                        async with sem:
-                            async with session.get(u) as r:
-                                return await r.read()
+                        max_retries = 3
+                        for attempt in range(max_retries):
+                            try:
+                                async with sem:
+                                    async with session.get(u, timeout=15) as r:
+                                        if r.status == 200:
+                                            return await r.read()
+                                        else:
+                                            raise Exception(f"HTTP {r.status}")
+                            except Exception as e:
+                                if attempt == max_retries - 1:
+                                    _logger.warning(f"Failed to fetch {u} after {max_retries} attempts.")
+                                    return b""
+                                await asyncio.sleep(2 ** attempt)
+                        return b""
 
                     tasks = [fetch_item(u) for u in chunk_urls]
                     if init_url:
@@ -792,4 +804,144 @@ class AudioEngine:
         return vad_prob.astype(np.float32)
 
 
+
+
+
+    def compute_all_audio_features_chunked(
+        self, audio_data: np.ndarray, progress_cb: Any | None = None, cancel_event: Any | None = None,
+        max_workers: int = 4
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Parallel chunked processing for extreme speed on Local Fork (max_workers=4) 
+        without blowing up memory. Uses ThreadPoolExecutor because scipy.signal.sosfilt 
+        releases the GIL and memory is shared.
+        """
+        if len(audio_data) < int(self.sr * 0.5):
+            return np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32)
+
+        chunk_sec = 300
+        chunk_samples = int(self.sr * chunk_sec)
+        total_chunks = (len(audio_data) + chunk_samples - 1) // chunk_samples
+
+        window_len = int(self.sr * config.window_size_sec)
+        hop_len = int(self.sr * config.hop_size_sec)
+
+        def process_single_chunk(c_idx: int) -> tuple:
+            if cancel_event and cancel_event.is_set():
+                return None
+            start_idx = c_idx * chunk_samples
+            end_idx = min(len(audio_data), start_idx + chunk_samples)
+            chunk = audio_data[start_idx:end_idx]
+            
+            c_times, c_total_rms = fast_sliding_rms_tension(chunk, window_len, hop_len)
+            c_vocal_samples = sosfilt(self.sos_vocal, chunk).astype(np.float32)
+            _, c_vocal_rms = fast_sliding_rms_tension(c_vocal_samples, window_len, hop_len)
+            
+            c_presence_samples = sosfilt(self.sos_presence, chunk).astype(np.float32)
+            _, c_presence_rms = fast_sliding_rms_tension(c_presence_samples, window_len, hop_len)
+            
+            c_bass_samples = sosfilt(self.sos_game_bass, chunk).astype(np.float32)
+            _, c_bass_rms = fast_sliding_rms_tension(c_bass_samples, window_len, hop_len)
+            
+            m_len = min(len(c_total_rms), len(c_vocal_rms), len(c_presence_rms), len(c_bass_rms))
+            
+            c_pure_vocal_tension = fast_multifeature_tension(
+                c_vocal_rms[:m_len], c_total_rms[:m_len], c_vocal_samples, window_len, hop_len
+            )
+            c_onset_strength = self._compute_onset_strength(c_total_rms[:m_len])
+            
+            c_blended_tension = np.zeros(m_len, dtype=np.float32)
+            w = config.multiband_weights
+            w_vocal = w.get("vocal", 0.50)
+            w_presence = w.get("presence", 0.25)
+            w_bass = w.get("bass", 0.10)
+            w_onset = w.get("onset", 0.15)
+            
+            c_blended_tension[:m_len] += c_pure_vocal_tension[:m_len] * w_vocal
+            c_blended_tension[:m_len] += c_presence_rms[:m_len] * w_presence
+            c_blended_tension[:m_len] += c_bass_rms[:m_len] * w_bass
+            c_blended_tension[:m_len] += c_onset_strength[:m_len] * w_onset
+            
+            c_speech = np.zeros(m_len, dtype=np.float32)
+            c_laughter = np.zeros(m_len, dtype=np.float32)
+            voc_thresh = max(0.012, float(np.percentile(c_vocal_rms[:m_len], 35)) if m_len > 0 else 0.012)
+            sub_len = int(self.sr * 0.05)
+            
+            for i in range(m_len):
+                s_idx_win = i * hop_len
+                e_idx_win = min(len(chunk), s_idx_win + window_len)
+                sub_chunk = chunk[s_idx_win:e_idx_win]
+                if len(sub_chunk) >= 100:
+                    n_sub = len(sub_chunk) // sub_len
+                    if n_sub > 0:
+                        active_subs = 0
+                        for s in range(n_sub):
+                            sub_e = np.sqrt(np.mean(sub_chunk[s*sub_len : (s+1)*sub_len]**2))
+                            if sub_e > (voc_thresh * 0.6):
+                                active_subs += 1
+                        c_speech[i] = float(active_subs) / float(n_sub)
+                
+                pres = c_presence_rms[i]
+                voc = c_vocal_rms[i]
+                if voc > 1e-4:
+                    ratio = pres / (voc + 1e-4)
+                    if 0.4 < ratio < 2.5 and voc > (voc_thresh * 0.8):
+                        c_laughter[i] = min(3.0, ratio * (voc / voc_thresh))
+
+            max_i = chunk_samples // hop_len
+            if c_idx == total_chunks - 1:
+                max_i = m_len
+            
+            valid_len = min(m_len, max_i)
+            res_times = c_times[:valid_len] + (start_idx / self.sr)
+            res_tension = c_blended_tension[:valid_len]
+            res_speech = c_speech[:valid_len]
+            res_laughter = c_laughter[:valid_len]
+            
+            del chunk, c_vocal_samples, c_presence_samples, c_bass_samples, c_total_rms, c_vocal_rms
+            return c_idx, res_times, res_tension, res_speech, res_laughter
+
+        all_results = [None] * total_chunks
+        
+        import concurrent.futures
+        import time
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_single_chunk, i): i for i in range(total_chunks)}
+            completed = 0
+            for future in concurrent.futures.as_completed(futures):
+                time.sleep(0.01) # Yield to GUI event loop
+                if cancel_event and cancel_event.is_set():
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    return np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32)
+                
+                res = future.result()
+                if res is not None:
+                    c_idx, r_times, r_tension, r_speech, r_laughter = res
+                    all_results[c_idx] = (r_times, r_tension, r_speech, r_laughter)
+                
+                completed += 1
+                if progress_cb:
+                    pct = completed / total_chunks
+                    progress_cb("TensionCalc", 0.38 + (0.42 * pct), f"병렬 오디오 분석 중... ({completed}/{total_chunks} 청크)")
+
+        valid_results = [r for r in all_results if r is not None]
+        if not valid_results:
+            return np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32)
+
+        final_times = np.concatenate([r[0] for r in valid_results])
+        final_tension = np.concatenate([r[1] for r in valid_results])
+        final_speech = np.concatenate([r[2] for r in valid_results])
+        final_laughter = np.concatenate([r[3] for r in valid_results])
+
+        mean_v = float(np.mean(final_tension))
+        std_v = float(np.std(final_tension))
+        if std_v > 1e-6:
+            final_tension = (final_tension - mean_v) / std_v
+        else:
+            final_tension = np.zeros_like(final_tension)
+            
+        import gc
+        gc.collect()
+            
+        return final_times, final_tension, final_speech, final_laughter
 
