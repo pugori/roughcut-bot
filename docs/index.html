@@ -791,10 +791,10 @@
         화자별 자막 트랙이 분리 배치된 Final Cut Pro XML(xmeml v4) 시퀀스 및 SRT 자막을 생성합니다.
       </p>
       <div class="hero-pills">
-        <div class="pill"><span class="pill-dot"></span>음향 VAD(Voice Activity Detection) 기반 무음 분할</div>
-        <div class="pill"><span class="pill-dot"></span>화자별 독립 비디오 자막 트랙 분리 (V2, V3, V4)</div>
-        <div class="pill"><span class="pill-dot"></span>재인코딩 없는 타임라인 XML 데이터 출력</div>
-        <div class="pill"><span class="pill-dot"></span>로컬 PC 오프라인 연산 처리 (영상 외부 전송 없음)</div>
+        <div class="pill"><span class="pill-dot"></span>특정 유튜버 발화 스타일(텐션/여백) 추출 및 프로파일링</div>
+        <div class="pill"><span class="pill-dot"></span>시퀀스 타임라인에 100% 동기화된 SRT 자막 (Sequence-Synced)</div>
+        <div class="pill"><span class="pill-dot"></span>출력 포맷 선택형 (Premiere XML, FCPXML, SRT)</div>
+        <div class="pill"><span class="pill-dot"></span>로컬 PC 오프라인 GPU 가속 처리 (영상 외부 전송 없음)</div>
       </div>
     </section>
 
@@ -898,6 +898,16 @@
             </div>
           </div>
 
+          <!-- 3. Export Format Selection -->
+          <div class="form-group" style="margin-bottom: 20px;">
+            <label class="form-label"><span>📝 3. 출력 파일 포맷 선택</span></label>
+            <div style="display: flex; gap: 16px; margin-top: 8px; font-size: 13px; color: #e2e8f0; font-weight: 500;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" checked style="accent-color: var(--accent-cyan);"> Premiere Pro XML</label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" checked style="accent-color: var(--accent-cyan);"> FCPXML (DaVinci)</label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" checked style="accent-color: var(--accent-cyan);"> SRT 자막</label>
+            </div>
+          </div>
+
           <!-- Action Button -->
           <button type="button" class="btn-primary-action" id="btn-start-process" onclick="runRoughCutSimulation()">
             <span>🚀</span> <span id="btn-start-label">[합방 모드] VOD 무음 컷팅 & 화자 분리 XML 생성 시작</span>
@@ -910,10 +920,15 @@
               <span id="progress-percent-label" style="color: var(--accent-cyan); font-weight: 700;">0%</span>
             </div>
             <div class="progress-track"><div class="progress-fill" id="progress-bar-inner"></div></div>
-            <div class="step-indicator-grid">
+            <div class="step-indicator-grid" style="display: none;">
               <div class="step-item" id="step-1">[1/3] 🎧 오디오 VAD 무음 컷팅</div>
               <div class="step-item" id="step-2">[2/3] <span id="lbl-step2-name">✂️ 화자 클러스터링 & 자막 트랙 분리</span></div>
               <div class="step-item" id="step-3">[3/3] 📄 FCPXML (xmeml v4) 생성</div>
+            </div>
+            <div style="background: #06080d; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 12px; font-family: 'Consolas', monospace; font-size: 11px; color: #86efac; height: 70px; overflow-y: hidden; line-height: 1.5; display: flex; flex-direction: column; justify-content: flex-end;">
+              <div style="color: #64748b;">[INFO] 🤖 로컬 AI 모델 로드 완료...</div>
+              <div style="color: #64748b;">[INFO] 🎵 오디오 추출 진행률: 100%</div>
+              <div id="simulated-log-text" style="color: #86efac;">[INFO] 전사 중 (컷 1/6) [1.2s]: 안녕하세요 오늘은 새로운...</div>
             </div>
           </div>
 
