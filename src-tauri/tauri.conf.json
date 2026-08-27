@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ChannelDNA Pro",
+  "version": "2.5.0",
+  "identifier": "com.channeldna.pro",
+  "build": {
+    "frontendDist": "../dist-ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ChannelDNA Pro - AI 채널 DNA 분석 & VOD 스튜디오",
+        "width": 1100,
+        "height": 880,
+        "minWidth": 960,
+        "minHeight": 760,
+        "resizable": true,
+        "fullscreen": false,
+        "theme": "Dark"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/app.ico", "icons/icon.png", "icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png",
+      "icons/app_icon.png"
+    ]
+  }
+}
+

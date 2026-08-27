@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0A0D14;
+    color: #E2E8F0;
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    letter-spacing: -0.01em;
+  }
+  input, textarea {
+    user-select: auto;
+    -webkit-user-select: auto;
+  }
+}
+
+/* Custom Studio Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0E121B;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E2638;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2D3A54;
+}
+
+/* Glassmorphism Card Utilities */
+.studio-glass {
+  background: rgba(18, 22, 34, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 38, 56, 0.8);
+}
+
+.studio-glow-cyan {
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
+}
+
+.studio-glow-purple {
+  box-shadow: 0 0 15px rgba(171, 71, 188, 0.15);
+}
