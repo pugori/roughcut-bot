@@ -3,8 +3,8 @@
 import os
 from pathlib import Path
 
-# Discord Bot Token (Set via environment variable or fill in below)
-BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "MTU0MTQ3NTQ0Mzc2NzY0ODM3Nw.GjfrOM.tT1KRMZVa8eqrVJ9uaNGUvDDK1Hz_HVt3MItLk")
+# Discord Bot Token (Must be set via DISCORD_BOT_TOKEN environment variable)
+BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 
 # Primary Administrator Discord User ID (Integer)
 # Only this User ID can execute /암호발급, /현황, /해지
@@ -20,6 +20,6 @@ MIN_VOD_DURATION_SEC = 1200  # 20 minutes
 # Cloud vs Local Pipeline Engine (Default: True with NVIDIA L4 GPU)
 USE_MODAL_CLOUD = os.environ.get("USE_MODAL_CLOUD", "1").lower() in ("1", "true")
 
-# PayApp Credentials
-PAYAPP_USERID = os.environ.get("PAYAPP_USERID", "noir40")
-PAYAPP_LINKKEY = os.environ.get("PAYAPP_LINKKEY", "QweLq07yVKxJ1Wf9ABo3jO1DPJnCCRVaOgT+oqg6zaM=")
+# PayApp Credentials (Must be set via environment variables)
+PAYAPP_USERID = os.environ.get("PAYAPP_USERID", "")
+PAYAPP_LINKKEY = os.environ.get("PAYAPP_LINKKEY", "")
